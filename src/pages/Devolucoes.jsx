@@ -17,7 +17,7 @@ export default function Devolucoes() {
   async function load() {
     const [{ data: saidas }, { data: devs }] = await Promise.all([
       supabase.from('saidas')
-        .select('*, itens(id,nome,custo_unitario,unidade), professores(nome,registro), turmas(codigo,turno)')
+        .select('*, itens(id,nome,custo_unitario,unidade,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)')
         .eq('devolvivel', true),
       supabase.from('devolucoes')
         .select('*, saidas(professor_nome_snapshot, turma_codigo_snapshot, professores(nome), turmas(codigo), itens(nome))')
@@ -26,6 +26,13 @@ export default function Devolucoes() {
     setPendentes((saidas || []).filter(s => s.devolvido < s.quantidade))
     setHistorico(devs || [])
     setLoading(false)
+  }
+
+  function nomeProduto(item) {
+    if (!item) return '—'
+    const p = item.produtos
+    if (!p) return item.nome || '—'
+    return `${p.nome}${p.cor ? ` — ${p.cor}` : ''}${p.tamanho ? ` ${p.tamanho}` : ''}`
   }
 
   function abrirModal(saida) {
@@ -101,7 +108,7 @@ export default function Devolucoes() {
         <div className="card">
           <table>
             <thead>
-              <tr><th>Item</th><th>Retirado</th><th>Devolvido</th><th>Pendente</th><th>Professor(a)</th><th>Registro</th><th>Turma</th><th>Turno</th><th>Data saída</th><th>Dev. prevista</th><th>Situação</th><th>Ação</th></tr>
+              <tr><th>Item</th><th>Retirado</th><th>Devolvido</th><th>Pendente</th><th>Professor(a)</th><th>Registro</th><th>Turma</th><th>Data saída</th><th>Dev. prevista</th><th>Situação</th><th>Ação</th></tr>
             </thead>
             <tbody>
               {pendentes.map(s => {
@@ -112,14 +119,13 @@ export default function Devolucoes() {
                 const codigoTurma = s.turmas?.codigo || s.turma_codigo_snapshot || '—'
                 return (
                   <tr key={s.id} style={{ background: venc ? '#fff5f5' : undefined }}>
-                    <td>{s.itens?.nome}</td>
+                    <td>{nomeProduto(s.itens)}</td>
                     <td>{s.quantidade}</td>
                     <td>{s.devolvido}</td>
                     <td><strong style={{ color: '#dc2626', fontWeight: 600 }}>{pend} {s.itens?.unidade}</strong></td>
                     <td>{nomeProfessor}</td>
                     <td><span className="badge badge-neutral" style={{ fontSize: 11 }}>{registro}</span></td>
                     <td><strong style={{ fontWeight: 500 }}>{codigoTurma}</strong></td>
-                    <td>{s.turmas?.turno || '—'}</td>
                     <td>{fmtData(s.data_saida)}</td>
                     <td style={{ color: venc ? '#dc2626' : '#d97706' }}>{fmtData(s.data_devolucao_prevista)}</td>
                     <td>{venc ? <span className="badge badge-danger">Vencido</span> : <span className="badge badge-warning">Pendente</span>}</td>

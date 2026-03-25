@@ -67,7 +67,7 @@ export default function Dashboard() {
         <div className="card-title">Últimas movimentações</div>
         <table>
           <thead>
-            <tr><th>Item</th><th>Qtd</th><th>Professor(a)</th><th>Sala</th><th>Turno</th><th>Data</th><th>Dev. prevista</th></tr>
+            <tr><th>Item</th><th>Qtd</th><th>Professor(a)</th><th>Sala</th><th>Data</th><th>Dev. prevista</th></tr>
           </thead>
           <tbody>
             {movimentos.map(s => (
@@ -76,7 +76,6 @@ export default function Dashboard() {
                 <td>{s.quantidade}</td>
                 <td>{s.professor}</td>
                 <td>{s.sala}</td>
-                <td>{s.turno}</td>
                 <td>{fmtData(s.data_saida)}</td>
                 <td>{s.devolvivel ? fmtData(s.data_devolucao_prevista) : '-'}</td>
               </tr>

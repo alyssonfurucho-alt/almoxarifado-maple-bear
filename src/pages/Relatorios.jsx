@@ -14,23 +14,27 @@ export default function Relatorios() {
 
   async function load() {
     const [{ data:s },{ data:d }] = await Promise.all([
-      supabase.from('saidas').select('*, itens(nome,custo_unitario), professores(nome,registro), turmas(codigo,turno)').order('data_saida'),
+      supabase.from('saidas').select('*, itens(nome,custo_unitario,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)').order('data_saida'),
       supabase.from('devolucoes').select('*, saidas(professor_nome_snapshot, turma_codigo_snapshot, professores(nome), turmas(codigo), itens(nome))'),
     ])
     setSaidas(s||[]); setDevolucoes(d||[])
     setLoading(false)
   }
 
+  function nomeProdSaida(s) {
+    const p = s.itens?.produtos
+    if (!p) return s.itens?.nome || '—'
+    return `${p.nome}${p.cor ? ` — ${p.cor}` : ''}${p.tamanho ? ` ${p.tamanho}` : ''}`
+  }
   const nomeProfSaida = s => s.professores?.nome || s.professor_nome_snapshot || '—'
   const regProfSaida  = s => s.professores?.registro || '—'
   const turmaSaida    = s => s.turmas?.codigo || s.turma_codigo_snapshot || '—'
-  const turnoSaida    = s => s.turmas?.turno || '—'
 
   // Por turma
   const porTurma = {}
   saidas.forEach(s=>{
     const k = turmaSaida(s)
-    if (!porTurma[k]) porTurma[k]={ turma:k, turno:turnoSaida(s), itens:0, custo:0, pend:0 }
+    if (!porTurma[k]) porTurma[k]={ turma:k, itens:0, custo:0, pend:0 }
     porTurma[k].itens += s.quantidade
     porTurma[k].custo += (s.itens?.custo_unitario||0)*s.quantidade
     if (s.devolvivel) porTurma[k].pend += s.quantidade-s.devolvido
@@ -60,7 +64,7 @@ export default function Relatorios() {
   // Consumo por item
   const consumo = {}
   saidas.forEach(s=>{
-    const nome = s.itens?.nome||'Desconhecido'
+    const p = s.itens?.produtos; const nome = p ? `${p.nome}${p.cor?` — ${p.cor}`:''}${p.tamanho?` ${p.tamanho}`:''}` : (s.itens?.nome||'Desconhecido')
     if (!consumo[nome]) consumo[nome]={ retirado:0, devolvido:0, custo:0, avarias:0 }
     consumo[nome].retirado += s.quantidade
     consumo[nome].devolvido += s.devolvido
@@ -88,12 +92,11 @@ export default function Relatorios() {
       {tab==='turma' && (
         <div className="card">
           <table>
-            <thead><tr><th>Turma</th><th>Turno</th><th>Itens retirados</th><th>Custo total</th><th>Devoluções pendentes</th></tr></thead>
+            <thead><tr><th>Turma</th><th>Itens retirados</th><th>Custo total</th><th>Devoluções pendentes</th></tr></thead>
             <tbody>
               {Object.values(porTurma).map((r,i)=>(
                 <tr key={i}>
-                  <td><strong style={{fontWeight:500}}>{r.turma}</strong></td>
-                  <td>{r.turno}</td><td>{r.itens}</td><td>{fmtR(r.custo)}</td>
+                  <td><strong style={{fontWeight:500}}>{r.turma}</strong></td><td>{r.itens}</td><td>{fmtR(r.custo)}</td>
                   <td>{r.pend>0?<span className="badge badge-warning">{r.pend} itens</span>:<span className="badge badge-success">OK</span>}</td>
                 </tr>
               ))}
@@ -155,19 +158,19 @@ export default function Relatorios() {
           </div>
           <div className="card">
             <table>
-              <thead><tr><th>Data</th><th>Item</th><th>Qtd</th><th>Professor(a)</th><th>Registro</th><th>Turma</th><th>Turno</th><th>Devolvível</th><th>Dev. prevista</th><th>Status</th><th>Custo</th></tr></thead>
+              <thead><tr><th>Data</th><th>Item</th><th>Qtd</th><th>Professor(a)</th><th>Registro</th><th>Turma</th><th>Devolvível</th><th>Dev. prevista</th><th>Status</th><th>Custo</th></tr></thead>
               <tbody>
                 {porPeriodo.map(s=>{
                   const st = statusDevolucao(s)
                   return (
                     <tr key={s.id}>
                       <td>{fmtData(s.data_saida)}</td>
-                      <td>{s.itens?.nome}</td>
+                      <td>{nomeProdSaida(s)}</td>
                       <td>{s.quantidade}</td>
                       <td>{nomeProfSaida(s)}</td>
                       <td><span className="badge badge-neutral" style={{fontSize:11}}>{regProfSaida(s)}</span></td>
                       <td><strong style={{fontWeight:500}}>{turmaSaida(s)}</strong></td>
-                      <td>{turnoSaida(s)}</td>
+                      
                       <td>{s.devolvivel?'Sim':'Não'}</td>
                       <td>{s.devolvivel?fmtData(s.data_devolucao_prevista):'-'}</td>
                       <td><span className={`badge ${st.cls}`}>{st.label}</span></td>

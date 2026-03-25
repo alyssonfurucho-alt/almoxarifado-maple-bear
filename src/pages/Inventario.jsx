@@ -10,15 +10,22 @@ export default function Inventario() {
   const [filtroStatus, setFiltroStatus] = useState('')
   const [turmas, setTurmas] = useState([])
 
+  function nomeProduto(item) {
+    if (!item) return '—'
+    const p = item.produtos
+    if (!p) return item.nome || '—'
+    return `${p.nome}${p.cor ? ` — ${p.cor}` : ''}${p.tamanho ? ` ${p.tamanho}` : ''}`
+  }
+
   useEffect(() => { load() }, [])
 
   async function load() {
     const [{ data: itensDados }, { data: saidasDados }, { data: turmasDados }] = await Promise.all([
-      supabase.from('itens').select('*').eq('inventario', true).order('nome'),
+      supabase.from('itens').select('*, produtos(nome,cor,tamanho,codigo_barras)').eq('inventario', true).order('nome'),
       supabase.from('saidas')
-        .select('*, itens(nome,unidade), professores(nome,registro), turmas(id,codigo,turno)')
+        .select('*, itens(nome,unidade), professores(nome,registro), turmas(id,codigo)')
         .eq('devolvivel', true),
-      supabase.from('turmas').select('id,codigo,turno').eq('ativo', true).order('codigo'),
+      supabase.from('turmas').select('id,codigo').eq('ativo', true).order('codigo'),
     ])
     setItens(itensDados || [])
     setSaidas(saidasDados || [])
@@ -85,7 +92,7 @@ export default function Inventario() {
           <select value={filtroTurma} onChange={e => setFiltroTurma(e.target.value)}
             style={{ padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', minWidth: 140 }}>
             <option value="">Todas as turmas</option>
-            {turmas.map(t => <option key={t.id} value={t.id}>{t.codigo} — {t.turno}</option>)}
+            {turmas.map(t => <option key={t.id} value={t.id}>{t.codigo}</option>)}
           </select>
         </div>
         <div>
@@ -113,7 +120,7 @@ export default function Inventario() {
               <th>Unidade</th>
               <th>Status</th>
               <th>Turma</th>
-              <th>Turno</th>
+              
               <th>Professor(a)</th>
               <th>Data saída</th>
               <th>Dev. prevista</th>
@@ -126,7 +133,7 @@ export default function Inventario() {
               return (
                 <tr key={idx} style={{ background: vencido ? '#fff5f5' : undefined }}>
                   <td>
-                    <strong style={{ fontWeight: 500 }}>{l.item.nome}</strong>
+                    <strong style={{ fontWeight: 500 }}>{nomeProduto(l.item)}</strong>
                     <span style={{ marginLeft: 6, fontSize: 11, background: '#ede9fe', color: '#7c3aed', padding: '1px 7px', borderRadius: 4, fontWeight: 500 }}>inventário</span>
                   </td>
                   <td>{l.item.categoria}</td>
@@ -140,7 +147,6 @@ export default function Inventario() {
                       : <span className="badge badge-warning">Em uso</span>}
                   </td>
                   <td>{l.turma ? <strong style={{ fontWeight: 500 }}>{l.turma.codigo}</strong> : <span style={{ color: '#aaa' }}>—</span>}</td>
-                  <td>{l.turma?.turno || '—'}</td>
                   <td>{l.professor?.nome || '—'}</td>
                   <td>{l.saida ? fmtData(l.saida.data_saida) : '—'}</td>
                   <td style={{ color: vencido ? '#dc2626' : '#d97706' }}>

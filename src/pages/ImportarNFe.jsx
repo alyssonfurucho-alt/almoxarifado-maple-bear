@@ -85,8 +85,14 @@ export default function ImportarNFe() {
         const qtd    = parseFloat(tag(prod, 'qCom').replace(',', '.')) || 0
         const custo  = parseFloat(tag(prod, 'vUnCom').replace(',', '.')) || 0
         const unidade = normalizeUnidade(tag(prod, 'uCom'))
-        const existente = itensCadastrados?.find(i => i.nome.toLowerCase().trim() === nome.toLowerCase().trim())
-        itens.push({ nome, qtd, custo, unidade, categoria: inferCategoria(nome), existente: existente || null })
+        const cean   = tag(prod, 'cEAN')  // código de barras EAN/GTIN
+        const codProd = tag(prod, 'cProd') // código interno do fornecedor
+        // busca por código de barras primeiro, depois por nome
+        const existente = itensCadastrados?.find(i =>
+          (cean && cean !== 'SEM GTIN' && i.codigo_barras === cean) ||
+          i.nome.toLowerCase().trim() === nome.toLowerCase().trim()
+        )
+        itens.push({ nome, qtd, custo, unidade, cean: (cean && cean !== 'SEM GTIN') ? cean : null, codProd, categoria: inferCategoria(nome), existente: existente || null })
       }
 
       setItensPrevia(itens)
@@ -109,16 +115,20 @@ export default function ImportarNFe() {
     for (const item of lista) {
       try {
         if (item.existente) {
-          await supabase.from('itens').update({
+          const updatePayload = {
             quantidade: item.existente.quantidade + item.qtd,
             custo_unitario: item.custo,
-          }).eq('id', item.existente.id)
+          }
+          // atualiza código de barras se o item ainda não tiver
+          if (item.cean && !item.existente.codigo_barras) updatePayload.codigo_barras = item.cean
+          await supabase.from('itens').update(updatePayload).eq('id', item.existente.id)
           itensLog.push({ id: item.existente.id, nome: item.nome, qtd: item.qtd, tipo: 'entrada' })
           atualizados++
         } else {
           const { data: novoItem } = await supabase.from('itens').insert({
             nome: item.nome, categoria: item.categoria,
             custo_unitario: item.custo, quantidade: item.qtd, unidade: item.unidade,
+            codigo_barras: item.cean || null,
           }).select().single()
           if (novoItem) itensLog.push({ id: novoItem.id, nome: item.nome, qtd: item.qtd, tipo: 'cadastro' })
           cadastrados++
@@ -241,12 +251,13 @@ export default function ImportarNFe() {
               </div>
               <div className="card">
                 <table>
-                  <thead><tr><th style={{ width: 36 }}><input type="checkbox" checked={totalSel === itensPrevia.length} onChange={e => { const s = {}; itensPrevia.forEach((_, i) => s[i] = e.target.checked); setSelecionados(s) }} style={{ accentColor: '#1d4ed8' }} /></th><th>Produto</th><th>Qtd</th><th>Custo unit.</th><th>Unidade</th><th>Categoria</th><th>Situação</th><th>Estoque atual → novo</th></tr></thead>
+                  <thead><tr><th style={{ width: 36 }}><input type="checkbox" checked={totalSel === itensPrevia.length} onChange={e => { const s = {}; itensPrevia.forEach((_, i) => s[i] = e.target.checked); setSelecionados(s) }} style={{ accentColor: '#1d4ed8' }} /></th><th>Produto</th><th>Cód. barras</th><th>Qtd</th><th>Custo unit.</th><th>Unidade</th><th>Categoria</th><th>Situação</th><th>Estoque atual → novo</th></tr></thead>
                   <tbody>
                     {itensPrevia.map((item, i) => (
                       <tr key={i} style={{ opacity: selecionados[i] ? 1 : 0.4 }}>
                         <td><input type="checkbox" checked={!!selecionados[i]} onChange={() => setSelecionados(s => ({ ...s, [i]: !s[i] }))} style={{ accentColor: '#1d4ed8' }} /></td>
                         <td><strong style={{ fontWeight: 500 }}>{item.nome}</strong></td>
+                        <td>{item.cean ? <span style={{ fontFamily: 'monospace', fontSize: 11, background: '#f5f5f3', padding: '2px 6px', borderRadius: 4 }}>{item.cean}</span> : <span style={{ color: '#aaa', fontSize: 12 }}>—</span>}</td>
                         <td>{item.qtd}</td>
                         <td>{fmtR(item.custo)}</td>
                         <td>{item.unidade}</td>

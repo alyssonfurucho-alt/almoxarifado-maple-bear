@@ -17,7 +17,7 @@ export default function Historico() {
 
   async function load() {
     const { data } = await supabase.from('movimentacoes')
-      .select('*, itens(nome,unidade,custo_unitario), professores(nome,registro), turmas(codigo,turno)')
+      .select('*, itens(nome,unidade,custo_unitario), professores(nome,registro), turmas(codigo)')
       .order('created_at', { ascending: false })
       .limit(500)
     setMovs(data || [])
@@ -99,7 +99,7 @@ export default function Historico() {
               <th>Professor(a)</th>
               <th>Registro</th>
               <th>Turma</th>
-              <th>Turno</th>
+              
               <th>Observações</th>
             </tr>
           </thead>
@@ -108,8 +108,9 @@ export default function Historico() {
               const nomeProfessor = m.professores?.nome || m.professor_nome || '—'
               const registro      = m.professores?.registro || '—'
               const codigoTurma   = m.turmas?.codigo || m.turma_codigo || '—'
-              const turno         = m.turmas?.turno || '—'
-              const nomeItem      = m.itens?.nome || m.item_nome || '—'
+              
+              const prod = m.itens?.produtos
+              const nomeItem = prod ? `${prod.nome}${prod.cor ? ` — ${prod.cor}` : ''}${prod.tamanho ? ` ${prod.tamanho}` : ''}` : (m.itens?.nome || m.item_nome || '—')
               const dt = new Date(m.created_at)
               const dataHora = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
               const isEntrada = m.tipo==='entrada'||m.tipo==='devolucao'
