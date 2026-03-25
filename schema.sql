@@ -57,6 +57,63 @@ create table public.devolucoes (
 );
 
 -- ============================================================
+-- ATUALIZAÇÃO: Professores e Turmas
+-- ============================================================
+
+-- Tabela de professores
+create table public.professores (
+  id uuid default gen_random_uuid() primary key,
+  nome text not null,
+  email text,
+  telefone text,
+  ativo boolean default true,
+  created_at timestamptz default now()
+);
+
+-- Tabela de turmas
+create table public.turmas (
+  id uuid default gen_random_uuid() primary key,
+  nome text not null,
+  sala text not null,
+  turno text not null default 'Manhã',
+  ano text,
+  ativo boolean default true,
+  created_at timestamptz default now()
+);
+
+-- Atualiza tabela saidas: remove campos texto, adiciona FKs
+alter table public.saidas
+  drop column if exists professor,
+  drop column if exists sala,
+  drop column if exists turno,
+  add column professor_id uuid references public.professores(id),
+  add column turma_id uuid references public.turmas(id);
+
+-- RLS para novas tabelas
+alter table public.professores enable row level security;
+alter table public.turmas enable row level security;
+
+create policy "Acesso autenticado - professores"
+  on public.professores for all to authenticated
+  using (true) with check (true);
+
+create policy "Acesso autenticado - turmas"
+  on public.turmas for all to authenticated
+  using (true) with check (true);
+
+-- Exemplos de professores e turmas
+insert into public.professores (nome, email) values
+  ('Ana Paula Souza', 'ana.paula@escola.edu.br'),
+  ('Fernanda Lima', 'fernanda.lima@escola.edu.br'),
+  ('João Roberto', 'joao.roberto@escola.edu.br');
+
+insert into public.turmas (nome, sala, turno, ano) values
+  ('3º Ano A', 'Sala 3', 'Manhã', '2025'),
+  ('4º Ano B', 'Sala 5', 'Manhã', '2025'),
+  ('2º Ano C', 'Sala 7', 'Tarde', '2025'),
+  ('1º Ano A', 'Sala 2', 'Noite', '2025');
+
+-- ============================================================
 -- Row Level Security (RLS) — Segurança por linha
 -- ============================================================
 
