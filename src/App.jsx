@@ -9,9 +9,11 @@ import Devolucoes from './pages/Devolucoes'
 import Cobranca from './pages/Cobranca'
 import Relatorios from './pages/Relatorios'
 import Historico from './pages/Historico'
+import Inventario from './pages/Inventario'
 import ImportarNFe from './pages/ImportarNFe'
 import Professores from './pages/Professores'
 import Turmas from './pages/Turmas'
+import Produtos from './pages/Produtos'
 import Usuarios from './pages/Usuarios'
 
 function PrivateRoute({ children }) {
@@ -28,26 +30,23 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<Dashboard />} />
-        <Route path="estoque" element={<Estoque />} />
-        <Route path="saidas" element={<Saidas />} />
-        <Route path="devolucoes" element={<Devolucoes />} />
-        <Route path="cobranca" element={<Cobranca />} />
-        <Route path="relatorios" element={<Relatorios />} />
-        <Route path="historico" element={<Historico />} />
-        <Route path="importar" element={<ImportarNFe />} />
+        <Route path="estoque"     element={<Estoque />} />
+        <Route path="saidas"      element={<Saidas />} />
+        <Route path="devolucoes"  element={<Devolucoes />} />
+        <Route path="cobranca"    element={<Cobranca />} />
+        <Route path="relatorios"  element={<Relatorios />} />
+        <Route path="historico"   element={<Historico />} />
+        <Route path="inventario"  element={<Inventario />} />
+        <Route path="importar"    element={<ImportarNFe />} />
         <Route path="professores" element={<Professores />} />
-        <Route path="turmas" element={<Turmas />} />
-        <Route path="usuarios" element={<Usuarios />} />
+        <Route path="turmas"      element={<Turmas />} />
+        <Route path="produtos"    element={<Produtos />} />
+        <Route path="usuarios"    element={<Usuarios />} />
       </Route>
     </Routes>
   )
 }
 
 export default function App() {
-  return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
-  )
+  return <AuthProvider><AppRoutes /></AuthProvider>
 }
-
