@@ -2,14 +2,16 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 
 const navItems = [
-  { to: '/',           label: 'Dashboard',   icon: '◉', end: true },
-  { to: '/estoque',    label: 'Estoque',      icon: '▦' },
-  { to: '/saidas',     label: 'Saídas',       icon: '↑' },
-  { to: '/devolucoes', label: 'Devoluções',   icon: '↩' },
-  { to: '/cobranca',   label: 'Cobrança',     icon: '!' },
-  { to: '/relatorios', label: 'Relatórios',   icon: '≡' },
-  { to: '/importar',   label: 'Importar NF-e', icon: '↓' },
-  { to: '/usuarios',   label: 'Usuários',     icon: '◎' },
+  { to: '/',            label: 'Dashboard',    icon: '◉', end: true },
+  { to: '/estoque',     label: 'Estoque',       icon: '▦' },
+  { to: '/saidas',      label: 'Saídas',        icon: '↑' },
+  { to: '/devolucoes',  label: 'Devoluções',    icon: '↩' },
+  { to: '/cobranca',    label: 'Cobrança',      icon: '!' },
+  { to: '/relatorios',  label: 'Relatórios',    icon: '≡' },
+  { to: '/importar',    label: 'Importar NF-e', icon: '↓' },
+  { to: '/professores', label: 'Professores',   icon: '▲' },
+  { to: '/turmas',      label: 'Turmas',        icon: '▣' },
+  { to: '/usuarios',    label: 'Usuários',      icon: '◎' },
 ]
 
 export default function Layout() {
