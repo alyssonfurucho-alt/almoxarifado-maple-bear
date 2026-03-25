@@ -18,22 +18,29 @@ body {
   border-right: 1px solid #e8e8e5;
   display: flex; flex-direction: column;
   padding: 16px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.sidebar nav, .sidebar > a, .sidebar > div.nav-item {
+  flex-shrink: 0;
 }
 .sidebar-logo { padding: 0 16px 16px; border-bottom: 1px solid #e8e8e5; margin-bottom: 8px; }
 .sidebar-logo h2 { font-size: 15px; font-weight: 600; color: #1a1a1a; }
 .sidebar-logo p { font-size: 11px; color: #888; margin-top: 2px; }
 .nav-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 9px 16px; cursor: pointer;
+  padding: 7px 16px; cursor: pointer;
   font-size: 13px; color: #666;
   text-decoration: none;
   transition: background 0.1s;
+  flex-shrink: 0;
 }
 .nav-item:hover { background: #f5f5f3; color: #1a1a1a; }
 .nav-item.active { background: #eff6ff; color: #1d4ed8; font-weight: 500; }
 .sidebar-bottom {
   margin-top: auto; padding: 12px 16px;
   border-top: 1px solid #e8e8e5;
+  flex-shrink: 0;
 }
 .avatar {
   width: 28px; height: 28px; border-radius: 50%;
