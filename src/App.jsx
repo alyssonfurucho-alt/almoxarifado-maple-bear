@@ -10,6 +10,8 @@ import Cobranca from './pages/Cobranca'
 import Relatorios from './pages/Relatorios'
 import Usuarios from './pages/Usuarios'
 import ImportarNFe from './pages/ImportarNFe'
+import Professores from './pages/Professores'
+import Turmas from './pages/Turmas'
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
@@ -30,8 +32,10 @@ function AppRoutes() {
         <Route path="devolucoes" element={<Devolucoes />} />
         <Route path="cobranca" element={<Cobranca />} />
         <Route path="relatorios" element={<Relatorios />} />
-        <Route path="usuarios" element={<Usuarios />} />
         <Route path="importar" element={<ImportarNFe />} />
+        <Route path="professores" element={<Professores />} />
+        <Route path="turmas" element={<Turmas />} />
+        <Route path="usuarios" element={<Usuarios />} />
       </Route>
     </Routes>
   )
