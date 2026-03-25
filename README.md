@@ -48,7 +48,7 @@ Sistema de controle de almoxarifado para escolas.
     - **anon public** key (chave longa que começa com `eyJ...`)
 mkqurmyleyjqdorsiglf
 
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rcXVybXlsZXlqcWRvcnNpZ2xmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NDAwMzQsImV4cCI6MjA5MDAxNjAzNH0.MHrnKIg6u7eLUO4PKq2SZxorXDNydiyHnKNzRFUfL8A
+git push origin main
 ---
 
 ### Etapa 3 — Configurar o projeto localmente
