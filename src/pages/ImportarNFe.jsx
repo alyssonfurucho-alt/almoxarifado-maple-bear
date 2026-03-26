@@ -97,10 +97,17 @@ export default function ImportarNFe() {
         // cruza produto pelo EAN
         const produto = ean ? (produtosDB||[]).find(p => p.codigo_barras === ean) : null
 
-        // cruza item de estoque pelo produto_id → EAN → nome
+        // cruza item de estoque pelo produto_id → EAN → nome do produto → nome do item
         let itemEstoque = null
         if (produto) {
+          // busca pelo produto_id primeiro
           itemEstoque = (estoqueDB||[]).find(i => i.produto_id === produto.id)
+          // busca pelo nome do produto cadastrado
+          if (!itemEstoque) {
+            itemEstoque = (estoqueDB||[]).find(i =>
+              (i.nome||'').toLowerCase().trim() === (produto.nome||'').toLowerCase().trim()
+            )
+          }
         }
         if (!itemEstoque && ean) {
           itemEstoque = (estoqueDB||[]).find(i => i.codigo_barras === ean)
@@ -164,27 +171,46 @@ export default function ImportarNFe() {
         }
 
         // ── B: atualiza ou cria item de estoque ────────────────────
-        if (linha.itemEstoque) {
+        // Busca fresca no banco pelo produto_id para garantir dados atuais
+        let itemEstoqueAtual = linha.itemEstoque
+        if (!itemEstoqueAtual && produtoId) {
+          const { data: found } = await supabase
+            .from('estoque')
+            .select('id, quantidade, produto_id')
+            .eq('produto_id', produtoId)
+            .maybeSingle()
+          if (found) itemEstoqueAtual = found
+        }
+        if (!itemEstoqueAtual && linha.ean) {
+          const { data: found } = await supabase
+            .from('estoque')
+            .select('id, quantidade, produto_id')
+            .eq('codigo_barras', linha.ean)
+            .maybeSingle()
+          if (found) itemEstoqueAtual = found
+        }
+
+        if (itemEstoqueAtual) {
           // item já existe → atualiza quantidade e custo
-          const novaQtd = (linha.itemEstoque.quantidade || 0) + linha.qtd
+          const novaQtd = (itemEstoqueAtual.quantidade || 0) + linha.qtd
 
           const payload = {
             quantidade:     novaQtd,
             custo_unitario: linha.custo,
           }
           // vincula ao produto se ainda não estiver vinculado
-          if (produtoId && !linha.itemEstoque.produto_id) {
+          if (produtoId && !itemEstoqueAtual.produto_id) {
             payload.produto_id = produtoId
           }
 
           const { error: errU } = await supabase
             .from('estoque')
             .update(payload)
-            .eq('id', linha.itemEstoque.id)
+            .eq('id', itemEstoqueAtual.id)
 
           if (errU) throw new Error('Update estoque: ' + errU.message)
 
-          log.push({ id: linha.itemEstoque.id, nome: nomeItem, qtd: linha.qtd, tipo: 'entrada' })
+          log.push({ id: itemEstoqueAtual.id, nome: nomeItem, qtd: linha.qtd, tipo: 'entrada' })
           qtdAtualizados++
 
         } else {
@@ -362,7 +388,7 @@ export default function ImportarNFe() {
                       const jaTemProduto  = !!linha.produto
                       const jaTemEstoque  = !!linha.itemEstoque
                       const qtdAtual      = linha.itemEstoque?.quantidade ?? 0
-                      const qtdApos       = qtdAtual + linha.qtd
+                      const qtdApos       = qtdAtual + (parseInt(linha.qtd) || 0)
 
                       let situacao, situacaoCls
                       if (jaTemProduto && jaTemEstoque) {
@@ -392,7 +418,16 @@ export default function ImportarNFe() {
                               ? <span style={{ fontFamily:'monospace', fontSize:11, background:'#f5f5f3', padding:'2px 6px', borderRadius:4 }}>{linha.ean}</span>
                               : <span style={{ color:'#ccc' }}>—</span>}
                           </td>
-                          <td>{linha.qtd}</td>
+                          <td>
+                            <input
+                              type="number" min="1"
+                              value={linha.qtd}
+                              onChange={e => setLinhas(prev => prev.map((l,idx) =>
+                                idx===i ? {...l, qtd: Math.max(1, parseInt(e.target.value)||1)} : l
+                              ))}
+                              style={{ width:70, padding:'3px 6px', border:'1px solid #d1d5db', borderRadius:6, fontSize:13, textAlign:'center' }}
+                            />
+                          </td>
                           <td>{fmtR(linha.custo)}</td>
                           <td>{linha.unidade}</td>
                           <td>
@@ -412,7 +447,7 @@ export default function ImportarNFe() {
                           <td>
                             {jaTemEstoque
                               ? <span style={{ fontSize:12 }}>{qtdAtual} → <strong style={{ color:'#16a34a' }}>{qtdApos}</strong></span>
-                              : <span style={{ fontSize:12, color:'#16a34a', fontWeight:500 }}>+ {linha.qtd}</span>}
+                              : <span style={{ fontSize:12, color:'#16a34a', fontWeight:500 }}>+ {parseInt(linha.qtd)||0}</span>}
                           </td>
                         </tr>
                       )

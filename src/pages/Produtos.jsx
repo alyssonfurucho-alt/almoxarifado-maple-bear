@@ -13,7 +13,7 @@ export default function Produtos() {
   const [editando, setEditando] = useState(null)
   const [saving, setSaving] = useState(false)
   const [busca, setBusca] = useState('')
-  const emptyForm = { codigo_barras: '', nome: '', cor: '', tamanho: '' }
+  const emptyForm = { codigo_barras: '', nome: '', cor: '', tamanho: '', categoria: 'Material escolar' }
   const [form, setForm] = useState(emptyForm)
   const [erroCodigo, setErroCodigo] = useState('')
 
@@ -31,7 +31,7 @@ export default function Produtos() {
 
   function abrirEditar(p) {
     setEditando(p)
-    setForm({ codigo_barras: p.codigo_barras || '', nome: p.nome, cor: p.cor || '', tamanho: p.tamanho || '' })
+    setForm({ codigo_barras: p.codigo_barras || '', nome: p.nome, cor: p.cor || '', tamanho: p.tamanho || '', categoria: p.categoria || 'Material escolar' })
     setErroCodigo('')
     setModal(true)
   }
@@ -68,6 +68,7 @@ export default function Produtos() {
       nome: form.nome.trim(),
       cor: form.cor.trim() || null,
       tamanho: form.tamanho.trim() || null,
+      categoria: form.categoria || 'Material escolar',
     }
     if (editando) {
       await supabase.from('produtos').update(payload).eq('id', editando.id)
@@ -115,7 +116,7 @@ export default function Produtos() {
       <div className="card">
         <table>
           <thead>
-            <tr><th>Código de barras</th><th>Nome</th><th>Cor</th><th>Tamanho</th><th>Status</th><th>Ações</th></tr>
+            <tr><th>Código de barras</th><th>Nome</th><th>Categoria</th><th>Cor</th><th>Tamanho</th><th>Status</th><th>Ações</th></tr>
           </thead>
           <tbody>
             {ativos.map(p => (
@@ -126,6 +127,7 @@ export default function Produtos() {
                     : <span style={{ color: '#ccc' }}>—</span>}
                 </td>
                 <td><strong style={{ fontWeight: 500 }}>{p.nome}</strong></td>
+                <td>{p.categoria || '—'}</td>
                 <td>{p.cor
                   ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ width: 12, height: 12, borderRadius: '50%', background: p.cor.toLowerCase(), border: '1px solid #e8e8e5', display: 'inline-block' }} />
@@ -198,6 +200,16 @@ export default function Produtos() {
             <div className="form-row">
               <label>Tamanho</label>
               <input value={form.tamanho} onChange={f('tamanho')} placeholder="Ex: P, M, G, 42..." />
+            </div>
+            <div className="form-row">
+              <label>Categoria</label>
+              <select value={form.categoria} onChange={f('categoria')}>
+                <option>Material escolar</option>
+                <option>Limpeza</option>
+                <option>Escritório</option>
+                <option>Esportivo</option>
+                <option>Outro</option>
+              </select>
             </div>
           </div>
           <div className="modal-footer">

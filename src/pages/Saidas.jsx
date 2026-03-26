@@ -90,6 +90,10 @@ export default function Saidas() {
         devolvido: 0, observacoes,
       }).select().single()
       await supabase.from('estoque').update({ quantidade: item.quantidade - parseInt(l.quantidade) }).eq('id', l.item_id)
+      // se professor for "Inventário", marca o item de estoque como inventario
+      if (prof?.nome?.toLowerCase().replace(/[áàãâä]/g,'a').includes('inventario')) {
+        await supabase.from('estoque').update({ inventario: true }).eq('id', l.item_id)
+      }
       await supabase.from('movimentacoes').insert({
         item_id: l.item_id, item_nome: nomeProduto(item),
         tipo: 'saida', quantidade: parseInt(l.quantidade),
