@@ -56,7 +56,7 @@ export default function ImportarNFe() {
   function handleFile(e) {
     const file = e.target.files[0]
     if (!file) return
-    if (!file.name.endsWith('.xml')) { setErro('Selecione um arquivo .xml de NF-e'); return }
+    if (!file.name.toLowerCase().endsWith('.xml')) { setErro('Selecione um arquivo .xml de NF-e'); return }
     setErro('')
     const reader = new FileReader()
     reader.onload = ev => lerXML(ev.target.result)
@@ -79,8 +79,9 @@ export default function ImportarNFe() {
         cnpj:        tag(emit, 'CNPJ'),
       })
 
+      // suporta tanto <NFe> direto quanto encapsulado em <nfeProc>
       const dets = doc.getElementsByTagName('det')
-      if (!dets.length) { setErro('Nenhum produto encontrado na NF-e.'); return }
+      if (!dets.length) { setErro('Nenhum produto encontrado na NF-e. Verifique se o arquivo é uma NF-e válida.'); return }
 
       const { data: produtosDB } = await supabase.from('produtos').select('id, nome, codigo_barras, cor, tamanho')
       const { data: estoqueDB }  = await supabase.from('estoque').select('id, nome, quantidade, custo_unitario, produto_id, codigo_barras')
@@ -94,7 +95,12 @@ export default function ImportarNFe() {
         const unidade = normalizeUnidade(tag(prod, 'uCom'))
         const ean     = limparEan(tag(prod, 'cEAN'))
 
-        const produto = ean ? (produtosDB||[]).find(p => p.codigo_barras === ean) : null
+        const codProd = tag(prod, 'cProd') || ''
+
+        // busca produto pelo EAN; se não tiver EAN, tenta pelo nome
+        const produto = ean
+          ? (produtosDB||[]).find(p => p.codigo_barras === ean)
+          : (produtosDB||[]).find(p => p.nome?.toLowerCase().trim() === nome.toLowerCase().trim())
 
         let itemEstoque = null
         if (produto) {
@@ -114,12 +120,16 @@ export default function ImportarNFe() {
           )
         }
 
+        const infAdProd = tag(det.getElementsByTagName ? det : det, 'infAdProd') || ''
+
         novasLinhas.push({
           nome, qtd, custo, unidade, ean,
+          codProd,
+          infAdProd,
           categoria:   inferCategoria(nome),
           produto,
           itemEstoque,
-          pular: false,  // flag para pular este item
+          pular: false,
         })
       }
 
@@ -375,7 +385,11 @@ export default function ImportarNFe() {
                             {linha.produto?.cor    && <span style={{ marginLeft:6, fontSize:11, color:'#888' }}>{linha.produto.cor}</span>}
                             {linha.produto?.tamanho && <span style={{ marginLeft:4, fontSize:11, color:'#888' }}>{linha.produto.tamanho}</span>}
                           </td>
-                          <td>{linha.ean ? <span style={{ fontFamily:'monospace', fontSize:11, background:'#f5f5f3', padding:'2px 6px', borderRadius:4 }}>{linha.ean}</span> : <span style={{ color:'#ccc' }}>—</span>}</td>
+                          <td>
+                            {linha.ean
+                              ? <span style={{ fontFamily:'monospace', fontSize:11, background:'#f5f5f3', padding:'2px 6px', borderRadius:4 }}>{linha.ean}</span>
+                              : <span style={{ fontSize:11, background:'#fef3c7', color:'#d97706', padding:'2px 6px', borderRadius:4 }}>sem EAN</span>}
+                          </td>
                           <td style={{ fontWeight:500 }}>{linha.qtd} {linha.unidade}</td>
                           <td>{fmtR(linha.custo)}</td>
                           <td>{linha.unidade}</td>
@@ -430,11 +444,9 @@ export default function ImportarNFe() {
                     {itemAtual.produto?.cor    && <span style={{ fontSize:12, color:'#888' }}>{itemAtual.produto.cor}</span>}
                     {itemAtual.produto?.tamanho && <span style={{ fontSize:12, color:'#888', marginLeft:6 }}>{itemAtual.produto.tamanho}</span>}
                   </div>
-                  {itemAtual.ean && (
-                    <span style={{ fontFamily:'monospace', fontSize:11, background:'#f5f5f3', padding:'3px 8px', borderRadius:4, color:'#888' }}>
-                      {itemAtual.ean}
-                    </span>
-                  )}
+                  {itemAtual.ean
+                    ? <span style={{ fontFamily:'monospace', fontSize:11, background:'#f5f5f3', padding:'3px 8px', borderRadius:4, color:'#888' }}>{itemAtual.ean}</span>
+                    : <span style={{ fontSize:11, background:'#fef3c7', color:'#d97706', padding:'3px 8px', borderRadius:4 }}>Sem código de barras — identificado pelo nome</span>}
                 </div>
 
                 {/* situação do estoque atual */}
