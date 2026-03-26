@@ -24,7 +24,8 @@ const navGroups = [
   {
     label: 'Cadastros',
     items: [
-      { to: '/professores',label: 'Professores',  icon: '▲' },
+      { to: '/produtos',    label: 'Produtos',     icon: '◇' },
+      { to: '/professores', label: 'Professores',  icon: '▲' },
       { to: '/turmas',     label: 'Turmas',       icon: '▣' },
       { to: '/usuarios',   label: 'Usuários',     icon: '◎' },
     ]
