@@ -17,7 +17,7 @@ export default function Historico() {
 
   async function load() {
     const { data } = await supabase.from('movimentacoes')
-      .select('*, itens(nome,unidade,custo_unitario), professores(nome,registro), turmas(codigo)')
+      .select('*, estoque(nome,unidade,custo_unitario), professores(nome,registro), turmas(codigo)')
       .order('created_at', { ascending: false })
       .limit(500)
     setMovs(data || [])
@@ -31,7 +31,7 @@ export default function Historico() {
     if (filAte && data > filAte) return false
     if (filBusca) {
       const q = filBusca.toLowerCase()
-      const nome = (m.itens?.nome || m.item_nome || '').toLowerCase()
+      const nome = (m.estoque?.nome || m.item_nome || '').toLowerCase()
       const prof = (m.professores?.nome || m.professor_nome || '').toLowerCase()
       const turma = (m.turmas?.codigo || m.turma_codigo || '').toLowerCase()
       if (!nome.includes(q) && !prof.includes(q) && !turma.includes(q)) return false
@@ -109,8 +109,8 @@ export default function Historico() {
               const registro      = m.professores?.registro || '—'
               const codigoTurma   = m.turmas?.codigo || m.turma_codigo || '—'
               
-              const prod = m.itens?.produtos
-              const nomeItem = prod ? `${prod.nome}${prod.cor ? ` — ${prod.cor}` : ''}${prod.tamanho ? ` ${prod.tamanho}` : ''}` : (m.itens?.nome || m.item_nome || '—')
+              const prod = m.estoque?.produtos
+              const nomeItem = prod ? `${prod.nome}${prod.cor ? ` — ${prod.cor}` : ''}${prod.tamanho ? ` ${prod.tamanho}` : ''}` : (m.estoque?.nome || m.item_nome || '—')
               const dt = new Date(m.created_at)
               const dataHora = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
               const isEntrada = m.tipo==='entrada'||m.tipo==='devolucao'

@@ -15,13 +15,13 @@ export default function Cobranca() {
     const prox = new Date(); prox.setDate(prox.getDate()+7)
     const proxStr = prox.toISOString().split('T')[0]
     const { data:saidas } = await supabase.from('saidas')
-      .select('*, itens(nome,custo_unitario,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)')
+      .select('*, estoque(nome,custo_unitario,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)')
       .eq('devolvivel',true)
     const pend = (saidas||[]).filter(s=>s.devolvido<s.quantidade)
     setVencidos(pend.filter(s=>s.data_devolucao_prevista&&s.data_devolucao_prevista<hj))
     setAvencer(pend.filter(s=>s.data_devolucao_prevista&&s.data_devolucao_prevista>=hj&&s.data_devolucao_prevista<=proxStr))
     const { data:devAvarias } = await supabase.from('devolucoes')
-      .select('*, saidas(professor_nome_snapshot, turma_codigo_snapshot, professores(nome,registro), turmas(codigo), itens(nome))')
+      .select('*, saidas(professor_nome_snapshot, turma_codigo_snapshot, professores(nome,registro), turmas(codigo), estoque(nome))')
       .eq('avaria',true).order('created_at',{ascending:false})
     setAvarias(devAvarias||[])
     setLoading(false)
@@ -31,14 +31,14 @@ export default function Cobranca() {
   const regProfRow  = s => s.professores?.registro || '—'
   const turmaCodRow = s => s.turmas?.codigo || s.turma_codigo_snapshot || '—'
 
-  const valorVenc = vencidos.reduce((a,s)=>a+((s.itens?.custo_unitario||0)*(s.quantidade-s.devolvido)),0)
-  const totalPend = [...vencidos,...avencer].reduce((a,s)=>a+((s.itens?.custo_unitario||0)*(s.quantidade-s.devolvido)),0)
+  const valorVenc = vencidos.reduce((a,s)=>a+((s.estoque?.custo_unitario||0)*(s.quantidade-s.devolvido)),0)
+  const totalPend = [...vencidos,...avencer].reduce((a,s)=>a+((s.estoque?.custo_unitario||0)*(s.quantidade-s.devolvido)),0)
 
   if (loading) return <div className="loading">Carregando...</div>
 
   function nomeProd(s) {
-    const p = s.itens?.produtos
-    if (!p) return s.itens?.nome || '—'
+    const p = s.estoque?.produtos
+    if (!p) return s.estoque?.nome || '—'
     return `${p.nome}${p.cor ? ` — ${p.cor}` : ''}${p.tamanho ? ` ${p.tamanho}` : ''}`
   }
 
@@ -68,7 +68,7 @@ export default function Cobranca() {
                     ? <span className="badge badge-danger">{diasDiff(s.data_devolucao_prevista)} dia(s)</span>
                     : <span className="badge badge-warning">{diff} dia(s)</span>}
                 </td>
-                <td>{fmtR((s.itens?.custo_unitario||0)*pend)}</td>
+                <td>{fmtR((s.estoque?.custo_unitario||0)*pend)}</td>
               </tr>
             )
           })}
@@ -103,7 +103,7 @@ export default function Cobranca() {
               const codigoTurma = s?.turmas?.codigo || s?.turma_codigo_snapshot || '—'
               return (
                 <tr key={d.id}>
-                  <td>{nomeProd(s||{itens:d?.saidas?.itens})}</td>
+                  <td>{nomeProd(s||{estoque:d?.saidas?.estoque})}</td>
                   <td>{d.avaria_quantidade} de {d.quantidade}</td>
                   <td>{nomeProfessor}</td>
                   <td><span className="badge badge-neutral" style={{fontSize:11}}>{registro}</span></td>

@@ -6,7 +6,7 @@ const emptyLinha = () => ({ item_id: '', quantidade: 1, devolvivel: false, data_
 
 export default function Saidas() {
   const [saidas, setSaidas] = useState([])
-  const [itens, setItens] = useState([])
+  const [estoque, setEstoque] = useState([])
   const [professores, setProfessores] = useState([])
   const [turmas, setTurmas] = useState([])
   const [loading, setLoading] = useState(true)
@@ -22,12 +22,12 @@ export default function Saidas() {
 
   async function load() {
     const [{ data: s }, { data: i }, { data: p }, { data: t }] = await Promise.all([
-      supabase.from('saidas').select('*, itens(nome,custo_unitario,produtos(nome,cor,tamanho,codigo_barras)), professores(nome,registro), turmas(codigo)').order('created_at', { ascending: false }),
-      supabase.from('itens').select('id,nome,quantidade,unidade,produtos(nome,cor,tamanho,codigo_barras)').order('nome'),
+      supabase.from('saidas').select('*, estoque(nome,custo_unitario,produtos(nome,cor,tamanho,codigo_barras)), professores(nome,registro), turmas(codigo)').order('created_at', { ascending: false }),
+      supabase.from('estoque').select('id,nome,quantidade,unidade,produtos(nome,cor,tamanho,codigo_barras)').order('nome'),
       supabase.from('professores').select('id,nome,registro').eq('ativo', true).order('nome'),
       supabase.from('turmas').select('id,codigo').eq('ativo', true).order('codigo'),
     ])
-    setSaidas(s || []); setItens(i || [])
+    setSaidas(s || []); setEstoque(i || [])
     setProfessores(p || []); setTurmas(t || [])
     setLoading(false)
   }
@@ -68,7 +68,7 @@ export default function Saidas() {
     if (!validas.length) return alert('Adicione pelo menos um item')
     for (const l of validas) {
       if (l.quantidade < 1) return alert('Quantidade deve ser maior que zero')
-      const item = itens.find(i => i.id === l.item_id)
+      const item = estoque.find(i => i.id === l.item_id)
       if (parseInt(l.quantidade) > item.quantidade)
         return alert(`Estoque insuficiente para "${nomeProduto(item)}". Disponível: ${item.quantidade} ${item.unidade}`)
       if (l.devolvivel && !l.data_devolucao_prevista)
@@ -78,7 +78,7 @@ export default function Saidas() {
     const turma = turmas.find(t => t.id === turma_id)
     setSaving(true)
     for (const l of validas) {
-      const item = itens.find(i => i.id === l.item_id)
+      const item = estoque.find(i => i.id === l.item_id)
       const { data: saida } = await supabase.from('saidas').insert({
         item_id: l.item_id,
         quantidade: parseInt(l.quantidade),
@@ -89,7 +89,7 @@ export default function Saidas() {
         data_devolucao_prevista: l.devolvivel ? l.data_devolucao_prevista : null,
         devolvido: 0, observacoes,
       }).select().single()
-      await supabase.from('itens').update({ quantidade: item.quantidade - parseInt(l.quantidade) }).eq('id', l.item_id)
+      await supabase.from('estoque').update({ quantidade: item.quantidade - parseInt(l.quantidade) }).eq('id', l.item_id)
       await supabase.from('movimentacoes').insert({
         item_id: l.item_id, item_nome: nomeProduto(item),
         tipo: 'saida', quantidade: parseInt(l.quantidade),
@@ -101,7 +101,7 @@ export default function Saidas() {
     setSaving(false); setModal(false); load()
   }
 
-  const estoquePorItem = Object.fromEntries(itens.map(i => [i.id, i]))
+  const estoquePorItem = Object.fromEntries(estoque.map(i => [i.id, i]))
   const itensSelecionados = idxAtual => linhas.map((l, i) => i !== idxAtual ? l.item_id : null).filter(Boolean)
 
   if (loading) return <div className="loading">Carregando...</div>
@@ -126,17 +126,17 @@ export default function Saidas() {
           <tbody>
             {saidas.map(s => {
               const st = statusDevolucao(s)
-              const prod = s.itens?.produtos
+              const prod = s.estoque?.produtos
               return (
                 <tr key={s.id}>
                   <td>{fmtData(s.data_saida)}</td>
-                  <td><strong style={{ fontWeight: 500 }}>{prod?.nome || s.itens?.nome || '—'}</strong></td>
+                  <td><strong style={{ fontWeight: 500 }}>{prod?.nome || s.estoque?.nome || '—'}</strong></td>
                   <td>{prod?.cor || '—'}</td>
                   <td>{prod?.tamanho || '—'}</td>
                   <td>{s.quantidade}</td>
                   <td>{s.professores?.nome || s.professor_nome_snapshot || '—'}</td>
                   <td><strong style={{ fontWeight: 500 }}>{s.turmas?.codigo || s.turma_codigo_snapshot || '—'}</strong></td>
-                  <td>{fmtR((s.itens?.custo_unitario || 0) * s.quantidade)}</td>
+                  <td>{fmtR((s.estoque?.custo_unitario || 0) * s.quantidade)}</td>
                   <td>{s.devolvivel ? <span className="badge badge-info">Sim</span> : <span className="badge badge-neutral">Não</span>}</td>
                   <td>{s.devolvivel ? fmtData(s.data_devolucao_prevista) : '-'}</td>
                   <td><span className={`badge ${st.cls}`}>{st.label}</span></td>
@@ -186,7 +186,7 @@ export default function Saidas() {
                       <label>Produto {idx + 1}</label>
                       <select value={linha.item_id} onChange={e => updateLinha(idx, 'item_id', e.target.value)}>
                         <option value="">Selecione...</option>
-                        {itens.map(i => (
+                        {estoque.map(i => (
                           <option key={i.id} value={i.id} disabled={selecionados.includes(i.id) || i.quantidade === 0}>
                             {nomeProduto(i)} ({i.quantidade} {i.unidade}){i.quantidade === 0 ? ' — sem estoque' : ''}
                           </option>

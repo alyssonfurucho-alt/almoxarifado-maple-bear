@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { fmtData } from '../lib/utils'
 
 export default function Inventario() {
-  const [itens, setItens] = useState([])
+  const [estoque, setEstoque] = useState([])
   const [saidas, setSaidas] = useState([])
   const [loading, setLoading] = useState(true)
   const [filtroTurma, setFiltroTurma] = useState('')
@@ -21,13 +21,13 @@ export default function Inventario() {
 
   async function load() {
     const [{ data: itensDados }, { data: saidasDados }, { data: turmasDados }] = await Promise.all([
-      supabase.from('itens').select('*, produtos(nome,cor,tamanho,codigo_barras)').eq('inventario', true).order('nome'),
+      supabase.from('estoque').select('*, produtos(nome,cor,tamanho,codigo_barras)').eq('inventario', true).order('nome'),
       supabase.from('saidas')
-        .select('*, itens(nome,unidade), professores(nome,registro), turmas(id,codigo)')
+        .select('*, estoque(nome,unidade), professores(nome,registro), turmas(id,codigo)')
         .eq('devolvivel', true),
       supabase.from('turmas').select('id,codigo').eq('ativo', true).order('codigo'),
     ])
-    setItens(itensDados || [])
+    setEstoque(itensDados || [])
     setSaidas(saidasDados || [])
     setTurmas(turmasDados || [])
     setLoading(false)
@@ -50,7 +50,7 @@ export default function Inventario() {
   }
 
   // Achata tudo em linhas para a tabela
-  const linhas = itens.flatMap(item => {
+  const linhas = estoque.flatMap(item => {
     const sits = situacaoItem(item)
     return sits.map(sit => ({ item, ...sit }))
   }).filter(l => {
@@ -72,14 +72,14 @@ export default function Inventario() {
         <div className="page-title">Inventário</div>
       </div>
 
-      {!itens.length && (
+      {!estoque.length && (
         <div className="alert alert-info">
-          Nenhum item marcado como inventário. Acesse Estoque e marque os itens desejados como "inventário".
+          Nenhum item marcado como inventário. Acesse Estoque e marque os estoque desejados como "inventário".
         </div>
       )}
 
       <div className="cards-grid">
-        <div className="metric-card"><div className="metric-label">Itens de inventário</div><div className="metric-value blue">{itens.length}</div></div>
+        <div className="metric-card"><div className="metric-label">Itens de inventário</div><div className="metric-value blue">{estoque.length}</div></div>
         <div className="metric-card"><div className="metric-label">Em estoque</div><div className="metric-value green">{totalEmEstoque}</div></div>
         <div className="metric-card"><div className="metric-label">Em uso (turmas)</div><div className="metric-value yellow">{totalEmUso}</div></div>
         <div className="metric-card"><div className="metric-label">Devolução vencida</div><div className="metric-value red">{totalVencidos}</div></div>

@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { fmtData, fmtR, hoje } from '../lib/utils'
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({ itens: 0, saidasHoje: 0, vencidos: 0, avencer: 0, avarias: 0 })
+  const [stats, setStats] = useState({ estoque: 0, saidasHoje: 0, vencidos: 0, avencer: 0, avarias: 0 })
   const [movimentos, setMovimentos] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -15,15 +15,15 @@ export default function Dashboard() {
     proxSemana.setDate(proxSemana.getDate() + 7)
     const proxSemanaStr = proxSemana.toISOString().split('T')[0]
 
-    const [{ count: itens }, { count: saidasHoje }, { count: vencidos }, { count: avencer }, { count: avarias }, { data: movs }] = await Promise.all([
-      supabase.from('itens').select('*', { count: 'exact', head: true }),
+    const [{ count: estoque }, { count: saidasHoje }, { count: vencidos }, { count: avencer }, { count: avarias }, { data: movs }] = await Promise.all([
+      supabase.from('estoque').select('*', { count: 'exact', head: true }),
       supabase.from('saidas').select('*', { count: 'exact', head: true }).eq('data_saida', hj),
       supabase.from('saidas').select('*', { count: 'exact', head: true })
         .eq('devolvivel', true).lt('data_devolucao_prevista', hj).lt('devolvido', supabase.rpc),
       supabase.from('saidas').select('*', { count: 'exact', head: true })
         .eq('devolvivel', true).gte('data_devolucao_prevista', hj).lte('data_devolucao_prevista', proxSemanaStr),
       supabase.from('devolucoes').select('*', { count: 'exact', head: true }).eq('avaria', true),
-      supabase.from('saidas').select('*, itens(nome)').order('created_at', { ascending: false }).limit(10),
+      supabase.from('saidas').select('*, estoque(nome)').order('created_at', { ascending: false }).limit(10),
     ])
 
     // vencidos com devolvido < quantidade
@@ -37,7 +37,7 @@ export default function Dashboard() {
       return d && d >= hj && d <= proxSemanaStr
     }).length || 0
 
-    setStats({ itens: itens || 0, saidasHoje: saidasHoje || 0, vencidos: venc, avencer: avc, avarias: avarias || 0 })
+    setStats({ estoque: estoque || 0, saidasHoje: saidasHoje || 0, vencidos: venc, avencer: avc, avarias: avarias || 0 })
     setMovimentos(movs || [])
     setLoading(false)
   }
@@ -52,7 +52,7 @@ export default function Dashboard() {
       </div>
 
       <div className="cards-grid">
-        <div className="metric-card"><div className="metric-label">Itens em estoque</div><div className="metric-value blue">{stats.itens}</div></div>
+        <div className="metric-card"><div className="metric-label">Itens em estoque</div><div className="metric-value blue">{stats.estoque}</div></div>
         <div className="metric-card"><div className="metric-label">Saídas hoje</div><div className="metric-value">{stats.saidasHoje}</div></div>
         <div className="metric-card"><div className="metric-label">Devoluções vencidas</div><div className="metric-value red">{stats.vencidos}</div></div>
         <div className="metric-card"><div className="metric-label">A vencer (7 dias)</div><div className="metric-value yellow">{stats.avencer}</div></div>
@@ -72,7 +72,7 @@ export default function Dashboard() {
           <tbody>
             {movimentos.map(s => (
               <tr key={s.id}>
-                <td>{s.itens?.nome || '-'}</td>
+                <td>{s.estoque?.nome || '-'}</td>
                 <td>{s.quantidade}</td>
                 <td>{s.professor}</td>
                 <td>{s.sala}</td>

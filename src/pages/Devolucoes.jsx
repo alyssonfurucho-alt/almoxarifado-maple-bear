@@ -17,10 +17,10 @@ export default function Devolucoes() {
   async function load() {
     const [{ data: saidas }, { data: devs }] = await Promise.all([
       supabase.from('saidas')
-        .select('*, itens(id,nome,custo_unitario,unidade,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)')
+        .select('*, estoque(id,nome,custo_unitario,unidade,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)')
         .eq('devolvivel', true),
       supabase.from('devolucoes')
-        .select('*, saidas(professor_nome_snapshot, turma_codigo_snapshot, professores(nome), turmas(codigo), itens(nome))')
+        .select('*, saidas(professor_nome_snapshot, turma_codigo_snapshot, professores(nome), turmas(codigo), estoque(nome))')
         .order('created_at', { ascending: false }),
     ])
     setPendentes((saidas || []).filter(s => s.devolvido < s.quantidade))
@@ -47,7 +47,7 @@ export default function Devolucoes() {
 
     // Ponto 5: validação rigorosa — só permite <= pendente
     if (!qtd || qtd < 1) return alert('Informe a quantidade a devolver')
-    if (qtd > pendente) return alert(`Não é possível devolver mais do que o pendente.\nPendente: ${pendente} ${modalSaida.itens?.unidade || ''}`)
+    if (qtd > pendente) return alert(`Não é possível devolver mais do que o pendente.\nPendente: ${pendente} ${modalSaida.estoque?.unidade || ''}`)
     if (form.avaria && !form.avariaDesc.trim()) return alert('Descreva a avaria')
     if (form.avaria && (!form.avariaQtd || parseInt(form.avariaQtd) < 1 || parseInt(form.avariaQtd) > qtd))
       return alert(`Quantidade avariada inválida (entre 1 e ${qtd})`)
@@ -68,12 +68,12 @@ export default function Devolucoes() {
         .update({ devolvido: modalSaida.devolvido + qtd })
         .eq('id', modalSaida.id)
 
-      const { data: item } = await supabase.from('itens').select('quantidade').eq('id', modalSaida.item_id).single()
-      await supabase.from('itens').update({ quantidade: item.quantidade + qtd }).eq('id', modalSaida.item_id)
+      const { data: item } = await supabase.from('estoque').select('quantidade').eq('id', modalSaida.item_id).single()
+      await supabase.from('estoque').update({ quantidade: item.quantidade + qtd }).eq('id', modalSaida.item_id)
 
       await supabase.from('movimentacoes').insert({
         item_id: modalSaida.item_id,
-        item_nome: modalSaida.itens?.nome,
+        item_nome: modalSaida.estoque?.nome,
         tipo: 'devolucao',
         quantidade: qtd,
         professor_id: modalSaida.professor_id,
@@ -119,10 +119,10 @@ export default function Devolucoes() {
                 const codigoTurma = s.turmas?.codigo || s.turma_codigo_snapshot || '—'
                 return (
                   <tr key={s.id} style={{ background: venc ? '#fff5f5' : undefined }}>
-                    <td>{nomeProduto(s.itens)}</td>
+                    <td>{nomeProduto(s.estoque)}</td>
                     <td>{s.quantidade}</td>
                     <td>{s.devolvido}</td>
-                    <td><strong style={{ color: '#dc2626', fontWeight: 600 }}>{pend} {s.itens?.unidade}</strong></td>
+                    <td><strong style={{ color: '#dc2626', fontWeight: 600 }}>{pend} {s.estoque?.unidade}</strong></td>
                     <td>{nomeProfessor}</td>
                     <td><span className="badge badge-neutral" style={{ fontSize: 11 }}>{registro}</span></td>
                     <td><strong style={{ fontWeight: 500 }}>{codigoTurma}</strong></td>
@@ -151,7 +151,7 @@ export default function Devolucoes() {
                 const codigoTurma = d.saidas?.turmas?.codigo || d.saidas?.turma_codigo_snapshot || '—'
                 return (
                   <tr key={d.id}>
-                    <td>{d.saidas?.itens?.nome}</td>
+                    <td>{d.saidas?.estoque?.nome}</td>
                     <td>{d.quantidade}</td>
                     <td>{nomeProfessor}</td>
                     <td><strong style={{ fontWeight: 500 }}>{codigoTurma}</strong></td>
@@ -179,7 +179,7 @@ export default function Devolucoes() {
           <h3>Registrar devolução</h3>
           <div className="form-row">
             <label>Item</label>
-            <input readOnly value={`${modalSaida?.itens?.nome || ''}`} />
+            <input readOnly value={`${modalSaida?.estoque?.nome || ''}`} />
           </div>
 
           {/* Info de contexto */}

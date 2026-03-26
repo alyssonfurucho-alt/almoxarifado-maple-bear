@@ -3,78 +3,77 @@ import { supabase } from '../lib/supabase'
 import { fmtR } from '../lib/utils'
 
 export default function Estoque() {
-  const [itens, setItens] = useState([])
-  const [produtos, setProdutos] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [busca, setBusca] = useState('')
+  const [estoque, setEstoque]           = useState([])
+  const [produtos, setProdutos]         = useState([])
+  const [loading, setLoading]           = useState(true)
+  const [busca, setBusca]               = useState('')
   const [mostrarZerados, setMostrarZerados] = useState(false)
-  const [modal, setModal] = useState(false)
+  const [modal, setModal]               = useState(false)
   const [modalEntrada, setModalEntrada] = useState(null)
-  const emptyForm = { produto_id: '', categoria: 'Material escolar', custo_unitario: '', quantidade: '', unidade: 'un', inventario: false }
-  const [form, setForm] = useState(emptyForm)
-  const [entQtd, setEntQtd] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [sugestoes, setSugestoes] = useState([])
-  const [mostrarSugestoes, setMostrarSugestoes] = useState(false)
+  const emptyForm = { produto_id:'', categoria:'Material escolar', custo_unitario:'', quantidade:'', unidade:'un', inventario:false }
+  const [form, setForm]                 = useState(emptyForm)
+  const [entQtd, setEntQtd]            = useState('')
+  const [saving, setSaving]             = useState(false)
   const [buscaProduto, setBuscaProduto] = useState('')
+  const [sugestoes, setSugestoes]       = useState([])
+  const [mostrarSugestoes, setMostrarSugestoes] = useState(false)
 
   useEffect(() => { load() }, [])
 
   async function load() {
-    const [{ data: i }, { data: p }] = await Promise.all([
-      supabase.from('itens').select('*, produtos(id,nome,codigo_barras,cor,tamanho)').order('produtos(nome)'),
+    const [{ data: e }, { data: p }] = await Promise.all([
+      supabase.from('estoque').select('*, produtos(id,nome,codigo_barras,cor,tamanho)').order('nome'),
       supabase.from('produtos').select('*').eq('ativo', true).order('nome'),
     ])
-    setItens(i || [])
+    setEstoque(e || [])
     setProdutos(p || [])
     setLoading(false)
   }
 
   async function salvar() {
     if (!form.produto_id) return alert('Selecione um produto')
-    // Verifica se já existe estoque para esse produto
-    const existente = itens.find(i => i.produto_id === form.produto_id)
+    const existente = estoque.find(i => i.produto_id === form.produto_id)
     if (existente) {
-      alert(`Já existe estoque cadastrado para este produto.\nUse "+ Entrada" para adicionar quantidade.`)
+      alert('Já existe estoque para este produto. Use "+ Entrada".')
       return
     }
     setSaving(true)
     const produto = produtos.find(p => p.id === form.produto_id)
     const qtd = parseInt(form.quantidade) || 0
-    const { data: item } = await supabase.from('itens').insert({
-      produto_id: form.produto_id,
-      nome: produto?.nome,
-      categoria: form.categoria,
+    const { data: novoEstoque } = await supabase.from('estoque').insert({
+      produto_id:     form.produto_id,
+      nome:           produto?.nome,
+      categoria:      form.categoria,
       custo_unitario: parseFloat(form.custo_unitario) || 0,
-      quantidade: qtd,
-      unidade: form.unidade || 'un',
-      inventario: form.inventario,
-      codigo_barras: produto?.codigo_barras || null,
+      quantidade:     qtd,
+      unidade:        form.unidade || 'un',
+      inventario:     form.inventario,
+      codigo_barras:  produto?.codigo_barras || null,
     }).select().single()
-    if (item && qtd > 0) {
+    if (novoEstoque && qtd > 0) {
       await supabase.from('movimentacoes').insert({
-        item_id: item.id, item_nome: produto?.nome,
-        tipo: 'entrada', quantidade: qtd,
-        observacoes: 'Cadastro inicial',
+        item_id: novoEstoque.id, item_nome: produto?.nome,
+        tipo: 'entrada', quantidade: qtd, observacoes: 'Cadastro inicial',
       })
     }
-    setModal(false); setForm(emptyForm); setSaving(false); load()
+    setModal(false); setForm(emptyForm); setBuscaProduto(''); setSaving(false); load()
   }
 
   async function entrada() {
     const n = parseInt(entQtd)
     if (!n || n < 1) return alert('Informe a quantidade')
     setSaving(true)
-    await supabase.from('itens').update({ quantidade: modalEntrada.quantidade + n }).eq('id', modalEntrada.id)
+    await supabase.from('estoque').update({ quantidade: modalEntrada.quantidade + n }).eq('id', modalEntrada.id)
     await supabase.from('movimentacoes').insert({
-      item_id: modalEntrada.id, item_nome: modalEntrada.produtos?.nome || modalEntrada.nome,
+      item_id: modalEntrada.id,
+      item_nome: modalEntrada.produtos?.nome || modalEntrada.nome,
       tipo: 'entrada', quantidade: n, observacoes: 'Entrada manual',
     })
     setModalEntrada(null); setEntQtd(''); setSaving(false); load()
   }
 
   async function toggleInventario(item) {
-    await supabase.from('itens').update({ inventario: !item.inventario }).eq('id', item.id)
+    await supabase.from('estoque').update({ inventario: !item.inventario }).eq('id', item.id)
     load()
   }
 
@@ -82,7 +81,7 @@ export default function Estoque() {
     const v = e.target.value
     setBuscaProduto(v)
     setForm({ ...form, produto_id: '' })
-    if (v.trim().length < 1) { setSugestoes([]); setMostrarSugestoes(false); return }
+    if (!v.trim()) { setSugestoes([]); setMostrarSugestoes(false); return }
     const matches = produtos.filter(p =>
       p.nome.toLowerCase().includes(v.toLowerCase()) ||
       (p.codigo_barras || '').includes(v) ||
@@ -100,21 +99,22 @@ export default function Estoque() {
   }
 
   const f = v => e => setForm({ ...form, [v]: e.target.value })
-
   const nomeItem = i => i.produtos?.nome || i.nome || '—'
   const corItem  = i => i.produtos?.cor || ''
   const tamItem  = i => i.produtos?.tamanho || ''
   const eanItem  = i => i.produtos?.codigo_barras || i.codigo_barras || ''
 
-  const lista = itens
+  const lista = estoque
     .filter(i => mostrarZerados ? true : i.quantidade > 0)
     .filter(i => {
       const q = busca.toLowerCase()
-      return !q || nomeItem(i).toLowerCase().includes(q) || eanItem(i).includes(busca) ||
-        corItem(i).toLowerCase().includes(q) || tamItem(i).toLowerCase().includes(q)
+      return !q || nomeItem(i).toLowerCase().includes(q) ||
+        eanItem(i).includes(busca) ||
+        corItem(i).toLowerCase().includes(q) ||
+        tamItem(i).toLowerCase().includes(q)
     })
 
-  const totalZerados = itens.filter(i => i.quantidade === 0).length
+  const totalZerados = estoque.filter(i => i.quantidade === 0).length
 
   if (loading) return <div className="loading">Carregando...</div>
 
@@ -126,18 +126,18 @@ export default function Estoque() {
       </div>
 
       <div className="cards-grid">
-        <div className="metric-card"><div className="metric-label">Total de itens</div><div className="metric-value blue">{itens.length}</div></div>
-        <div className="metric-card"><div className="metric-label">Em estoque</div><div className="metric-value green">{itens.filter(i => i.quantidade > 0).length}</div></div>
+        <div className="metric-card"><div className="metric-label">Total de itens</div><div className="metric-value blue">{estoque.length}</div></div>
+        <div className="metric-card"><div className="metric-label">Em estoque</div><div className="metric-value green">{estoque.filter(i => i.quantidade > 0).length}</div></div>
         <div className="metric-card"><div className="metric-label">Zerados</div><div className="metric-value red">{totalZerados}</div></div>
-        <div className="metric-card"><div className="metric-label">Inventário</div><div className="metric-value">{itens.filter(i => i.inventario).length}</div></div>
+        <div className="metric-card"><div className="metric-label">Inventário</div><div className="metric-value">{estoque.filter(i => i.inventario).length}</div></div>
       </div>
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-        <div className="search-bar" style={{ flex: '1 1 200px', marginBottom: 0 }}>
+      <div style={{ display:'flex', gap:10, alignItems:'center', marginBottom:16, flexWrap:'wrap' }}>
+        <div className="search-bar" style={{ flex:'1 1 200px', marginBottom:0 }}>
           <input placeholder="Buscar por nome, código, cor, tamanho..." value={busca} onChange={e => setBusca(e.target.value)} />
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: '#555', whiteSpace: 'nowrap' }}>
-          <input type="checkbox" checked={mostrarZerados} onChange={e => setMostrarZerados(e.target.checked)} style={{ accentColor: '#1d4ed8' }} />
+        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, cursor:'pointer', color:'#555', whiteSpace:'nowrap' }}>
+          <input type="checkbox" checked={mostrarZerados} onChange={e => setMostrarZerados(e.target.checked)} style={{ accentColor:'#1d4ed8' }} />
           Mostrar zerados {totalZerados > 0 && `(${totalZerados})`}
         </label>
       </div>
@@ -145,23 +145,23 @@ export default function Estoque() {
       <div className="card">
         <table>
           <thead>
-            <tr><th>Produto</th><th>Cód. barras</th><th>Cor</th><th>Tamanho</th><th>Categoria</th><th>Estoque</th><th>Custo unit.</th><th>Inventário</th><th>Situação</th><th>Ações</th></tr>
+            <tr><th>Produto</th><th>Cód. barras</th><th>Cor</th><th>Tamanho</th><th>Categoria</th><th>Qtd</th><th>Custo unit.</th><th>Inventário</th><th>Situação</th><th>Ações</th></tr>
           </thead>
           <tbody>
             {lista.map(i => (
               <tr key={i.id}>
                 <td>
-                  <strong style={{ fontWeight: 500 }}>{nomeItem(i)}</strong>
-                  {i.inventario && <span style={{ marginLeft: 6, fontSize: 11, background: '#ede9fe', color: '#7c3aed', padding: '1px 7px', borderRadius: 4, fontWeight: 500 }}>inventário</span>}
+                  <strong style={{ fontWeight:500 }}>{nomeItem(i)}</strong>
+                  {i.inventario && <span style={{ marginLeft:6, fontSize:11, background:'#ede9fe', color:'#7c3aed', padding:'1px 7px', borderRadius:4, fontWeight:500 }}>inventário</span>}
                 </td>
-                <td>{eanItem(i) ? <span style={{ fontFamily: 'monospace', fontSize: 11, background: '#f5f5f3', padding: '2px 6px', borderRadius: 4 }}>{eanItem(i)}</span> : <span style={{ color: '#ccc' }}>—</span>}</td>
-                <td>{corItem(i) || <span style={{ color: '#ccc' }}>—</span>}</td>
-                <td>{tamItem(i) || <span style={{ color: '#ccc' }}>—</span>}</td>
+                <td>{eanItem(i) ? <span style={{ fontFamily:'monospace', fontSize:11, background:'#f5f5f3', padding:'2px 6px', borderRadius:4 }}>{eanItem(i)}</span> : <span style={{ color:'#ccc' }}>—</span>}</td>
+                <td>{corItem(i) || <span style={{ color:'#ccc' }}>—</span>}</td>
+                <td>{tamItem(i) || <span style={{ color:'#ccc' }}>—</span>}</td>
                 <td>{i.categoria}</td>
                 <td>{i.quantidade} {i.unidade}</td>
                 <td>{fmtR(i.custo_unitario)}</td>
                 <td>
-                  <button onClick={() => toggleInventario(i)} style={{ padding: '3px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: i.inventario ? '1px solid #7c3aed' : '1px solid #d1d5db', background: i.inventario ? '#ede9fe' : '#fff', color: i.inventario ? '#7c3aed' : '#888', fontWeight: i.inventario ? 500 : 400 }}>
+                  <button onClick={() => toggleInventario(i)} style={{ padding:'3px 10px', fontSize:12, borderRadius:6, cursor:'pointer', border: i.inventario ? '1px solid #7c3aed' : '1px solid #d1d5db', background: i.inventario ? '#ede9fe' : '#fff', color: i.inventario ? '#7c3aed' : '#888', fontWeight: i.inventario ? 500 : 400 }}>
                     {i.inventario ? 'Sim' : 'Não'}
                   </button>
                 </td>
@@ -178,24 +178,30 @@ export default function Estoque() {
       <div className={`modal-overlay${modal ? ' open' : ''}`}>
         <div className="modal">
           <h3>Adicionar ao estoque</h3>
-          <div className="form-row" style={{ position: 'relative' }}>
-            <label>Produto <span style={{ fontSize: 11, color: '#888' }}>(busque por nome, código ou cor)</span></label>
-            <input value={buscaProduto} onChange={handleBuscaProduto} onFocus={() => sugestoes.length > 0 && setMostrarSugestoes(true)} onBlur={() => setTimeout(() => setMostrarSugestoes(false), 150)} placeholder="Digite para buscar..." autoComplete="off" />
+          <div className="form-row" style={{ position:'relative' }}>
+            <label>Produto <span style={{ fontSize:11, color:'#888' }}>(busque por nome, código ou cor)</span></label>
+            <input value={buscaProduto} onChange={handleBuscaProduto}
+              onFocus={() => sugestoes.length > 0 && setMostrarSugestoes(true)}
+              onBlur={() => setTimeout(() => setMostrarSugestoes(false), 150)}
+              placeholder="Digite para buscar..." autoComplete="off" />
             {mostrarSugestoes && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 2, overflow: 'hidden' }}>
+              <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:200, background:'#fff', border:'1px solid #d1d5db', borderRadius:8, boxShadow:'0 4px 12px rgba(0,0,0,0.1)', marginTop:2, overflow:'hidden' }}>
                 {sugestoes.map(p => (
-                  <div key={p.id} onMouseDown={() => selecionarProduto(p)} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f5f5f3' }} onMouseEnter={e => e.currentTarget.style.background = '#f5f5f3'} onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
+                  <div key={p.id} onMouseDown={() => selecionarProduto(p)}
+                    style={{ padding:'8px 12px', cursor:'pointer', fontSize:13, display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid #f5f5f3' }}
+                    onMouseEnter={e => e.currentTarget.style.background='#f5f5f3'}
+                    onMouseLeave={e => e.currentTarget.style.background='#fff'}>
                     <div>
-                      <strong style={{ fontWeight: 500 }}>{p.nome}</strong>
-                      {p.cor && <span style={{ marginLeft: 6, fontSize: 12, color: '#888' }}>{p.cor}</span>}
-                      {p.tamanho && <span style={{ marginLeft: 4, fontSize: 12, color: '#888' }}>{p.tamanho}</span>}
+                      <strong style={{ fontWeight:500 }}>{p.nome}</strong>
+                      {p.cor && <span style={{ marginLeft:6, fontSize:12, color:'#888' }}>{p.cor}</span>}
+                      {p.tamanho && <span style={{ marginLeft:4, fontSize:12, color:'#888' }}>{p.tamanho}</span>}
                     </div>
-                    {p.codigo_barras && <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#aaa' }}>{p.codigo_barras}</span>}
+                    {p.codigo_barras && <span style={{ fontFamily:'monospace', fontSize:11, color:'#aaa' }}>{p.codigo_barras}</span>}
                   </div>
                 ))}
               </div>
             )}
-            {!produtos.length && <div style={{ fontSize: 12, color: '#d97706', marginTop: 4 }}>Nenhum produto cadastrado. <a href="/produtos" style={{ color: '#1d4ed8' }}>Cadastre produtos primeiro.</a></div>}
+            {!produtos.length && <div style={{ fontSize:12, color:'#d97706', marginTop:4 }}>Nenhum produto cadastrado. <a href="/produtos" style={{ color:'#1d4ed8' }}>Cadastre produtos primeiro.</a></div>}
           </div>
           <div className="form-grid">
             <div className="form-row"><label>Categoria</label>
@@ -213,10 +219,10 @@ export default function Estoque() {
               <input value={form.unidade} onChange={f('unidade')} placeholder="un, cx, pct..." />
             </div>
           </div>
-          <div className="form-row" style={{ marginTop: 4 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
-              <input type="checkbox" checked={form.inventario} onChange={e => setForm({ ...form, inventario: e.target.checked })} style={{ accentColor: '#7c3aed' }} />
-              <span>Marcar como <strong style={{ color: '#7c3aed' }}>inventário</strong></span>
+          <div className="form-row" style={{ marginTop:4 }}>
+            <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', fontSize:13 }}>
+              <input type="checkbox" checked={form.inventario} onChange={e => setForm({ ...form, inventario: e.target.checked })} style={{ accentColor:'#7c3aed' }} />
+              <span>Marcar como <strong style={{ color:'#7c3aed' }}>inventário</strong></span>
             </label>
           </div>
           <div className="modal-footer">
@@ -228,12 +234,12 @@ export default function Estoque() {
 
       {/* Modal entrada */}
       <div className={`modal-overlay${modalEntrada ? ' open' : ''}`}>
-        <div className="modal" style={{ width: 360 }}>
+        <div className="modal" style={{ width:360 }}>
           <h3>Entrada de estoque</h3>
-          <p style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>
+          <p style={{ fontSize:13, color:'#888', marginBottom:12 }}>
             Produto: <strong>{modalEntrada ? nomeItem(modalEntrada) : ''}</strong>
-            {modalEntrada && corItem(modalEntrada) && <span style={{ color: '#888' }}> — {corItem(modalEntrada)}</span>}
-            {modalEntrada && tamItem(modalEntrada) && <span style={{ color: '#888' }}> {tamItem(modalEntrada)}</span>}
+            {modalEntrada && corItem(modalEntrada) && <span style={{ color:'#888' }}> — {corItem(modalEntrada)}</span>}
+            {modalEntrada && tamItem(modalEntrada) && <span style={{ color:'#888' }}> {tamItem(modalEntrada)}</span>}
           </p>
           <div className="form-row"><label>Quantidade a adicionar</label>
             <input type="number" min="1" value={entQtd} onChange={e => setEntQtd(e.target.value)} placeholder="0" />

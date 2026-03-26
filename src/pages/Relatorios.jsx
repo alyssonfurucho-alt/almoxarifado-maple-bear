@@ -14,16 +14,16 @@ export default function Relatorios() {
 
   async function load() {
     const [{ data:s },{ data:d }] = await Promise.all([
-      supabase.from('saidas').select('*, itens(nome,custo_unitario,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)').order('data_saida'),
-      supabase.from('devolucoes').select('*, saidas(professor_nome_snapshot, turma_codigo_snapshot, professores(nome), turmas(codigo), itens(nome))'),
+      supabase.from('saidas').select('*, estoque(nome,custo_unitario,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)').order('data_saida'),
+      supabase.from('devolucoes').select('*, saidas(professor_nome_snapshot, turma_codigo_snapshot, professores(nome), turmas(codigo), estoque(nome))'),
     ])
     setSaidas(s||[]); setDevolucoes(d||[])
     setLoading(false)
   }
 
   function nomeProdSaida(s) {
-    const p = s.itens?.produtos
-    if (!p) return s.itens?.nome || '—'
+    const p = s.estoque?.produtos
+    if (!p) return s.estoque?.nome || '—'
     return `${p.nome}${p.cor ? ` — ${p.cor}` : ''}${p.tamanho ? ` ${p.tamanho}` : ''}`
   }
   const nomeProfSaida = s => s.professores?.nome || s.professor_nome_snapshot || '—'
@@ -34,9 +34,9 @@ export default function Relatorios() {
   const porTurma = {}
   saidas.forEach(s=>{
     const k = turmaSaida(s)
-    if (!porTurma[k]) porTurma[k]={ turma:k, itens:0, custo:0, pend:0 }
-    porTurma[k].itens += s.quantidade
-    porTurma[k].custo += (s.itens?.custo_unitario||0)*s.quantidade
+    if (!porTurma[k]) porTurma[k]={ turma:k, estoque:0, custo:0, pend:0 }
+    porTurma[k].estoque += s.quantidade
+    porTurma[k].custo += (s.estoque?.custo_unitario||0)*s.quantidade
     if (s.devolvivel) porTurma[k].pend += s.quantidade-s.devolvido
   })
 
@@ -45,10 +45,10 @@ export default function Relatorios() {
   saidas.forEach(s=>{
     const nome = nomeProfSaida(s)
     const reg = regProfSaida(s)
-    if (!porProf[nome]) porProf[nome]={ nome, registro:reg, saidas:0, itens:0, custo:0, dev:0, pend:0, venc:0, avarias:0 }
+    if (!porProf[nome]) porProf[nome]={ nome, registro:reg, saidas:0, estoque:0, custo:0, dev:0, pend:0, venc:0, avarias:0 }
     porProf[nome].saidas++
-    porProf[nome].itens += s.quantidade
-    porProf[nome].custo += (s.itens?.custo_unitario||0)*s.quantidade
+    porProf[nome].estoque += s.quantidade
+    porProf[nome].custo += (s.estoque?.custo_unitario||0)*s.quantidade
     if (s.devolvivel) {
       porProf[nome].dev += s.devolvido
       porProf[nome].pend += s.quantidade-s.devolvido
@@ -64,14 +64,14 @@ export default function Relatorios() {
   // Consumo por item
   const consumo = {}
   saidas.forEach(s=>{
-    const p = s.itens?.produtos; const nome = p ? `${p.nome}${p.cor?` — ${p.cor}`:''}${p.tamanho?` ${p.tamanho}`:''}` : (s.itens?.nome||'Desconhecido')
+    const p = s.estoque?.produtos; const nome = p ? `${p.nome}${p.cor?` — ${p.cor}`:''}${p.tamanho?` ${p.tamanho}`:''}` : (s.estoque?.nome||'Desconhecido')
     if (!consumo[nome]) consumo[nome]={ retirado:0, devolvido:0, custo:0, avarias:0 }
     consumo[nome].retirado += s.quantidade
     consumo[nome].devolvido += s.devolvido
-    consumo[nome].custo += (s.itens?.custo_unitario||0)*s.quantidade
+    consumo[nome].custo += (s.estoque?.custo_unitario||0)*s.quantidade
   })
   devolucoes.filter(d=>d.avaria).forEach(d=>{
-    const nome = d.saidas?.itens?.nome
+    const nome = d.saidas?.estoque?.nome
     if (nome && consumo[nome]) consumo[nome].avarias += d.avaria_quantidade||0
   })
 
@@ -96,8 +96,8 @@ export default function Relatorios() {
             <tbody>
               {Object.values(porTurma).map((r,i)=>(
                 <tr key={i}>
-                  <td><strong style={{fontWeight:500}}>{r.turma}</strong></td><td>{r.itens}</td><td>{fmtR(r.custo)}</td>
-                  <td>{r.pend>0?<span className="badge badge-warning">{r.pend} itens</span>:<span className="badge badge-success">OK</span>}</td>
+                  <td><strong style={{fontWeight:500}}>{r.turma}</strong></td><td>{r.estoque}</td><td>{fmtR(r.custo)}</td>
+                  <td>{r.pend>0?<span className="badge badge-warning">{r.pend} estoque</span>:<span className="badge badge-success">OK</span>}</td>
                 </tr>
               ))}
               {!Object.keys(porTurma).length && <tr><td colSpan={5} className="empty">Sem dados</td></tr>}
@@ -115,7 +115,7 @@ export default function Relatorios() {
                 <tr key={nome}>
                   <td>{nome}</td>
                   <td><span className="badge badge-neutral" style={{fontSize:11}}>{r.registro}</span></td>
-                  <td>{r.saidas}</td><td>{r.itens}</td><td>{fmtR(r.custo)}</td>
+                  <td>{r.saidas}</td><td>{r.estoque}</td><td>{fmtR(r.custo)}</td>
                   <td>{r.dev}</td><td>{r.pend}</td>
                   <td>{r.venc>0?<span className="badge badge-danger">{r.venc}</span>:<span className="badge badge-success">0</span>}</td>
                   <td>{r.avarias>0?<span className="badge badge-danger">{r.avarias}</span>:<span className="badge badge-success">0</span>}</td>
@@ -174,7 +174,7 @@ export default function Relatorios() {
                       <td>{s.devolvivel?'Sim':'Não'}</td>
                       <td>{s.devolvivel?fmtData(s.data_devolucao_prevista):'-'}</td>
                       <td><span className={`badge ${st.cls}`}>{st.label}</span></td>
-                      <td>{fmtR((s.itens?.custo_unitario||0)*s.quantidade)}</td>
+                      <td>{fmtR((s.estoque?.custo_unitario||0)*s.quantidade)}</td>
                     </tr>
                   )
                 })}
