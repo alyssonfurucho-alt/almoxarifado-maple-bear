@@ -76,23 +76,49 @@ export default function ImportarNFe() {
       const dets = doc.getElementsByTagName('det')
       if (!dets.length) { setErro('Nenhum produto encontrado na NF-e.'); return }
 
-      const { data: itensCadastrados } = await supabase.from('itens').select('id,nome,quantidade,custo_unitario')
+      // Busca todos os produtos cadastrados para cruzar pelo EAN
+      const { data: produtosCadastrados } = await supabase
+        .from('produtos').select('id,nome,codigo_barras,cor,tamanho')
+
+      // Busca itens de estoque para dar entrada
+      const { data: itensCadastrados } = await supabase
+        .from('itens').select('id,nome,quantidade,custo_unitario,produto_id,codigo_barras')
 
       const itens = []
       for (const det of dets) {
         const prod = det.getElementsByTagName('prod')[0]
-        const nome   = tag(prod, 'xProd')
-        const qtd    = parseFloat(tag(prod, 'qCom').replace(',', '.')) || 0
-        const custo  = parseFloat(tag(prod, 'vUnCom').replace(',', '.')) || 0
+        const nome    = tag(prod, 'xProd')
+        const qtd     = parseFloat(tag(prod, 'qCom').replace(',', '.')) || 0
+        const custo   = parseFloat(tag(prod, 'vUnCom').replace(',', '.')) || 0
         const unidade = normalizeUnidade(tag(prod, 'uCom'))
-        const cean   = tag(prod, 'cEAN')  // código de barras EAN/GTIN
-        const codProd = tag(prod, 'cProd') // código interno do fornecedor
-        // busca por código de barras primeiro, depois por nome
-        const existente = itensCadastrados?.find(i =>
-          (cean && cean !== 'SEM GTIN' && i.codigo_barras === cean) ||
-          i.nome.toLowerCase().trim() === nome.toLowerCase().trim()
-        )
-        itens.push({ nome, qtd, custo, unidade, cean: (cean && cean !== 'SEM GTIN') ? cean : null, codProd, categoria: inferCategoria(nome), existente: existente || null })
+        const cean    = tag(prod, 'cEAN')
+        const codProd = tag(prod, 'cProd')
+        const eanLimpo = (cean && cean !== 'SEM GTIN') ? cean.replace(/\D/g, '') : null
+
+        // 1. Cruza com tabela PRODUTOS pelo codigo_barras
+        const produtoExistente = eanLimpo
+          ? produtosCadastrados?.find(p => p.codigo_barras === eanLimpo)
+          : null
+
+        // 2. Cruza com tabela ITENS (estoque) pelo produto_id ou codigo_barras
+        const itemEstoque = produtoExistente
+          ? itensCadastrados?.find(i => i.produto_id === produtoExistente.id)
+          : itensCadastrados?.find(i =>
+              (eanLimpo && i.codigo_barras === eanLimpo) ||
+              i.nome.toLowerCase().trim() === nome.toLowerCase().trim()
+            )
+
+        itens.push({
+          nome,
+          qtd,
+          custo,
+          unidade,
+          cean: eanLimpo,
+          codProd,
+          categoria: inferCategoria(nome),
+          produtoExistente: produtoExistente || null,  // produto já cadastrado
+          existente: itemEstoque || null,              // item de estoque já cadastrado
+        })
       }
 
       setItensPrevia(itens)
@@ -114,26 +140,51 @@ export default function ImportarNFe() {
 
     for (const item of lista) {
       try {
+        let produtoId = item.produtoExistente?.id || null
+
+        // PASSO 1: Se não existe produto pelo EAN, cria na tabela produtos
+        if (!produtoId && item.cean) {
+          const { data: novoProd } = await supabase.from('produtos').insert({
+            codigo_barras: item.cean,
+            nome: item.nome,
+            ativo: true,
+          }).select().single()
+          produtoId = novoProd?.id || null
+          if (novoProd) cadastrados++
+        } else if (item.produtoExistente) {
+          // produto já existia — não conta como cadastrado
+        }
+
+        // PASSO 2: Atualiza ou cria o item de estoque
         if (item.existente) {
+          // item de estoque já existe — só atualiza quantidade e custo
           const updatePayload = {
             quantidade: item.existente.quantidade + item.qtd,
             custo_unitario: item.custo,
           }
-          // atualiza código de barras se o item ainda não tiver
-          if (item.cean && !item.existente.codigo_barras) updatePayload.codigo_barras = item.cean
+          if (produtoId && !item.existente.produto_id) updatePayload.produto_id = produtoId
           await supabase.from('itens').update(updatePayload).eq('id', item.existente.id)
           itensLog.push({ id: item.existente.id, nome: item.nome, qtd: item.qtd, tipo: 'entrada' })
           atualizados++
         } else {
+          // item de estoque não existe — cria novo
           const { data: novoItem } = await supabase.from('itens').insert({
-            nome: item.nome, categoria: item.categoria,
-            custo_unitario: item.custo, quantidade: item.qtd, unidade: item.unidade,
+            produto_id: produtoId,
+            nome: item.nome,
+            categoria: item.categoria,
+            custo_unitario: item.custo,
+            quantidade: item.qtd,
+            unidade: item.unidade,
             codigo_barras: item.cean || null,
           }).select().single()
           if (novoItem) itensLog.push({ id: novoItem.id, nome: item.nome, qtd: item.qtd, tipo: 'cadastro' })
-          cadastrados++
+          if (!item.produtoExistente) {
+            // já contou acima se criou produto
+          } else {
+            cadastrados++
+          }
         }
-      } catch { erros++ }
+      } catch (e) { console.error(e); erros++ }
     }
 
     // Salva registro da NF no histórico
@@ -268,7 +319,15 @@ export default function ImportarNFe() {
                             </select>
                           )}
                         </td>
-                        <td>{item.existente ? <span className="badge badge-warning">Entrada em estoque</span> : <span className="badge badge-info">Novo item</span>}</td>
+                        <td>
+                          {item.produtoExistente && item.existente
+                            ? <span className="badge badge-warning">Entrada — produto existente</span>
+                            : item.produtoExistente && !item.existente
+                            ? <span className="badge badge-info">Novo estoque — produto existente</span>
+                            : item.existente
+                            ? <span className="badge badge-warning">Entrada em estoque</span>
+                            : <span className="badge badge-success">Novo produto + estoque</span>}
+                        </td>
                         <td>{item.existente ? <span style={{ fontSize: 12 }}>{item.existente.quantidade} → <strong style={{ color: '#16a34a' }}>{item.existente.quantidade + item.qtd}</strong></span> : <span style={{ fontSize: 12, color: '#888' }}>—</span>}</td>
                       </tr>
                     ))}

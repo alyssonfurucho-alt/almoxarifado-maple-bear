@@ -45,6 +45,12 @@ export default function Produtos() {
   async function salvar() {
     if (!form.nome.trim()) return alert('Informe o nome do produto')
 
+    // Regra: codigo_barras obrigatorio, exceto se cor OU tamanho preenchidos
+    if (!form.codigo_barras && !form.cor.trim() && !form.tamanho.trim()) {
+      setErroCodigo('Informe o código de barras, ou preencha pelo menos Cor ou Tamanho.')
+      return
+    }
+
     // Valida unicidade do código de barras
     if (form.codigo_barras) {
       const query = supabase.from('produtos').select('id,nome').eq('codigo_barras', form.codigo_barras)
