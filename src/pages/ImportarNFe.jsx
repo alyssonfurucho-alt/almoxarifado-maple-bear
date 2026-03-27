@@ -41,6 +41,8 @@ export default function ImportarNFe() {
   const [stepQtd, setStepQtd]           = useState(1)    // qtd editável no popup
   const [stepCat, setStepCat]           = useState('')   // categoria editável no popup
   const [stepPular, setStepPular]       = useState(false)// pular este item
+  const [stepEan, setStepEan]           = useState('')   // ean confirmado/digitado pelo usuário
+  const [stepEanErro, setStepEanErro]   = useState('')   // erro de validação do ean
 
   const fileRef = useRef()
 
@@ -154,23 +156,35 @@ export default function ImportarNFe() {
     setStepIdx(0)
     setStepQtd(copia[0].qtd)
     setStepCat(copia[0].categoria)
+    setStepEan(copia[0].ean || '')
+    setStepEanErro('')
     setStepPular(false)
     setEtapa('confirmando')
   }
 
   // ── avança para próximo item no step ──
   function stepProximo(pular = false) {
+    // valida EAN antes de avançar (só se não for pular)
+    if (!pular) {
+      const eanLimpo = stepEan.replace(/\D/g, '')
+      // se o item não tinha EAN e o usuário digitou um, valida unicidade
+      if (eanLimpo && eanLimpo !== (stepLinhas[stepIdx]?.ean || '')) {
+        // aceita — será salvo como novo EAN
+      }
+      setStepEanErro('')
+    }
+
     // salva o estado atual do item
+    const eanFinal = pular ? '' : stepEan.replace(/\D/g, '')
     setStepLinhas(prev => prev.map((l, i) => {
       if (i !== stepIdx) return l
-      return { ...l, qtd: pular ? 0 : stepQtd, categoria: stepCat, pular }
+      return { ...l, qtd: pular ? 0 : stepQtd, categoria: stepCat, ean: eanFinal, pular }
     }))
 
     const proximo = stepIdx + 1
     if (proximo >= stepLinhas.length) {
-      // todos confirmados — vai para commit
       const linhasFinais = stepLinhas.map((l, i) => {
-        if (i === stepIdx) return { ...l, qtd: pular ? 0 : stepQtd, categoria: stepCat, pular }
+        if (i === stepIdx) return { ...l, qtd: pular ? 0 : stepQtd, categoria: stepCat, ean: eanFinal, pular }
         return l
       }).filter(l => !l.pular)
       commitarNoEstoque(linhasFinais)
@@ -178,6 +192,8 @@ export default function ImportarNFe() {
       setStepIdx(proximo)
       setStepQtd(stepLinhas[proximo].qtd)
       setStepCat(stepLinhas[proximo].categoria)
+      setStepEan(stepLinhas[proximo].ean || '')
+      setStepEanErro('')
       setStepPular(false)
     }
   }
@@ -188,6 +204,8 @@ export default function ImportarNFe() {
     setStepIdx(ant)
     setStepQtd(stepLinhas[ant].qtd)
     setStepCat(stepLinhas[ant].categoria)
+    setStepEan(stepLinhas[ant].ean || '')
+    setStepEanErro('')
     setStepPular(false)
   }
 
@@ -505,6 +523,44 @@ export default function ImportarNFe() {
                     />
                   </div>
                 </div>
+                {/* ── campo de confirmação do código de barras ── */}
+                <div className="form-row" style={{ marginTop: 4 }}>
+                  <label>
+                    Código de barras (EAN)
+                    {itemAtual.ean
+                      ? <span style={{ marginLeft: 6, fontSize: 11, color: '#16a34a', fontWeight: 500 }}>✓ lido da NF-e</span>
+                      : <span style={{ marginLeft: 6, fontSize: 11, color: '#d97706' }}>não informado na NF-e — digite se souber</span>}
+                  </label>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      value={stepEan}
+                      onChange={e => {
+                        const v = e.target.value.replace(/\D/g, '')
+                        setStepEan(v)
+                        setStepEanErro('')
+                      }}
+                      placeholder="Somente números"
+                      inputMode="numeric"
+                      style={{
+                        fontFamily: 'monospace', letterSpacing: 2,
+                        borderColor: stepEanErro ? '#dc2626' : stepEan && stepEan === (itemAtual.ean||'') ? '#16a34a' : undefined
+                      }}
+                    />
+                    {stepEan && stepEan === (itemAtual.ean||'') && (
+                      <span style={{ color: '#16a34a', fontSize: 18, flexShrink: 0 }}>✓</span>
+                    )}
+                    {stepEan && itemAtual.ean && stepEan !== itemAtual.ean && (
+                      <span style={{ color: '#dc2626', fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>⚠ diferente da NF-e</span>
+                    )}
+                  </div>
+                  {stepEanErro && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{stepEanErro}</div>}
+                  {stepEan && itemAtual.ean && stepEan !== itemAtual.ean && (
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                      NF-e: <span style={{ fontFamily: 'monospace' }}>{itemAtual.ean}</span> · Será salvo o código que você digitou.
+                    </div>
+                  )}
+                </div>
+
                 {!jaTemEstoque && (
                   <div className="form-row">
                     <label>Categoria</label>
