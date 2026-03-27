@@ -40,11 +40,15 @@ export default function Estoque() {
     setSaving(true)
     const produto = produtos.find(p => p.id === form.produto_id)
     const qtd = parseInt(form.quantidade) || 0
+    const custoUnit = parseFloat(form.custo_unitario) || 0
     const { data: novoEstoque } = await supabase.from('estoque').insert({
       produto_id:     form.produto_id,
       nome:           produto?.nome,
       categoria:      form.categoria,
-      custo_unitario: parseFloat(form.custo_unitario) || 0,
+      custo_unitario: custoUnit,
+      custo_medio:    custoUnit,
+      ultimo_custo:   custoUnit,
+      total_entradas: qtd,
       quantidade:     qtd,
       unidade:        form.unidade || 'un',
       inventario:     form.inventario,
@@ -63,7 +67,20 @@ export default function Estoque() {
     const n = parseInt(entQtd)
     if (!n || n < 1) return alert('Informe a quantidade')
     setSaving(true)
-    await supabase.from('estoque').update({ quantidade: modalEntrada.quantidade + n }).eq('id', modalEntrada.id)
+    const qtdAtual   = modalEntrada.quantidade || 0
+    const custoAtual = modalEntrada.custo_unitario || 0
+    const novaQtd    = qtdAtual + n
+    // custo médio ponderado: (qtdAtual * custoAtual + n * custoAtual) / novaQtd
+    // mantém custo_unitario como referência; custo_medio é média ponderada histórica
+    const custoMedio = qtdAtual > 0
+      ? ((qtdAtual * (modalEntrada.custo_medio || custoAtual)) + (n * custoAtual)) / novaQtd
+      : custoAtual
+    await supabase.from('estoque').update({
+      quantidade:    novaQtd,
+      custo_medio:   parseFloat(custoMedio.toFixed(2)),
+      ultimo_custo:  custoAtual,
+      total_entradas: (modalEntrada.total_entradas || 0) + n,
+    }).eq('id', modalEntrada.id)
     await supabase.from('movimentacoes').insert({
       item_id: modalEntrada.id,
       item_nome: modalEntrada.produtos?.nome || modalEntrada.nome,
@@ -145,7 +162,7 @@ export default function Estoque() {
       <div className="card">
         <table>
           <thead>
-            <tr><th>Produto</th><th>Cód. barras</th><th>Cor</th><th>Tamanho</th><th>Categoria</th><th>Qtd</th><th>Custo unit.</th><th>Inventário</th><th>Situação</th><th>Ações</th></tr>
+            <tr><th>Produto</th><th>Cód. barras</th><th>Cor</th><th>Tamanho</th><th>Categoria</th><th>Qtd</th><th>Custo unit.</th><th>Custo médio</th><th>Último custo</th><th>Inventário</th><th>Situação</th><th>Ações</th></tr>
           </thead>
           <tbody>
             {lista.map(i => (
@@ -161,6 +178,16 @@ export default function Estoque() {
                 <td>{i.quantidade} {i.unidade}</td>
                 <td>{fmtR(i.custo_unitario)}</td>
                 <td>
+                  {i.custo_medio > 0
+                    ? <span style={{color:'#16a34a',fontWeight:500}}>{fmtR(i.custo_medio)}</span>
+                    : <span style={{color:'#aaa',fontSize:12}}>—</span>}
+                </td>
+                <td>
+                  {i.ultimo_custo > 0
+                    ? <span style={{color:'#d97706',fontWeight:500}}>{fmtR(i.ultimo_custo)}</span>
+                    : <span style={{color:'#aaa',fontSize:12}}>—</span>}
+                </td>
+                <td>
                   <button onClick={() => toggleInventario(i)} style={{ padding:'3px 10px', fontSize:12, borderRadius:6, cursor:'pointer', border: i.inventario ? '1px solid #7c3aed' : '1px solid #d1d5db', background: i.inventario ? '#ede9fe' : '#fff', color: i.inventario ? '#7c3aed' : '#888', fontWeight: i.inventario ? 500 : 400 }}>
                     {i.inventario ? 'Sim' : 'Não'}
                   </button>
@@ -169,7 +196,7 @@ export default function Estoque() {
                 <td><button className="btn btn-sm" onClick={() => { setModalEntrada(i); setEntQtd('') }}>+ Entrada</button></td>
               </tr>
             ))}
-            {!lista.length && <tr><td colSpan={10} className="empty">{mostrarZerados ? 'Nenhum item encontrado' : 'Nenhum item em estoque'}</td></tr>}
+            {!lista.length && <tr><td colSpan={12} className="empty">{mostrarZerados ? 'Nenhum item encontrado' : 'Nenhum item em estoque'}</td></tr>}
           </tbody>
         </table>
       </div>

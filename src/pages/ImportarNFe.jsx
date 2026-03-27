@@ -84,7 +84,7 @@ export default function ImportarNFe() {
       if (!dets.length) { setErro('Nenhum produto encontrado na NF-e. Verifique se o arquivo é uma NF-e válida.'); return }
 
       const { data: produtosDB } = await supabase.from('produtos').select('id, nome, codigo_barras, cor, tamanho')
-      const { data: estoqueDB }  = await supabase.from('estoque').select('id, nome, quantidade, custo_unitario, produto_id, codigo_barras')
+      const { data: estoqueDB }  = await supabase.from('estoque').select('id, nome, quantidade, custo_unitario, custo_medio, ultimo_custo, total_entradas, produto_id, codigo_barras')
 
       const novasLinhas = []
       for (const det of dets) {
@@ -225,8 +225,18 @@ export default function ImportarNFe() {
         }
 
         if (itemEstoqueAtual) {
-          const novaQtd = (itemEstoqueAtual.quantidade || 0) + linha.qtd
-          const payload = { quantidade: novaQtd, custo_unitario: linha.custo }
+          const qtdAtual   = itemEstoqueAtual.quantidade || 0
+          const novaQtd    = qtdAtual + linha.qtd
+          const custoMedio = qtdAtual > 0
+            ? ((qtdAtual * (itemEstoqueAtual.custo_medio || itemEstoqueAtual.custo_unitario || 0)) + (linha.qtd * linha.custo)) / novaQtd
+            : linha.custo
+          const payload = {
+            quantidade:    novaQtd,
+            custo_unitario: linha.custo,
+            custo_medio:   parseFloat(custoMedio.toFixed(2)),
+            ultimo_custo:  linha.custo,
+            total_entradas: (itemEstoqueAtual.total_entradas || 0) + linha.qtd,
+          }
           if (produtoId && !itemEstoqueAtual.produto_id) payload.produto_id = produtoId
           const { error: errU } = await supabase.from('estoque').update(payload).eq('id', itemEstoqueAtual.id)
           if (errU) throw new Error('Update: ' + errU.message)
@@ -234,9 +244,16 @@ export default function ImportarNFe() {
           qtdAtualizados++
         } else {
           const { data: novo, error: errI } = await supabase.from('estoque').insert({
-            produto_id: produtoId, nome: nomeItem, categoria: linha.categoria,
-            custo_unitario: linha.custo, quantidade: linha.qtd,
-            unidade: linha.unidade, codigo_barras: ean || null,
+            produto_id:     produtoId,
+            nome:           nomeItem,
+            categoria:      linha.categoria,
+            custo_unitario: linha.custo,
+            custo_medio:    linha.custo,
+            ultimo_custo:   linha.custo,
+            total_entradas: linha.qtd,
+            quantidade:     linha.qtd,
+            unidade:        linha.unidade,
+            codigo_barras:  ean || null,
           }).select('id').single()
           if (errI) throw new Error('Insert: ' + errI.message)
           log.push({ id: novo.id, nome: nomeItem, qtd: linha.qtd, tipo: 'cadastro' })
