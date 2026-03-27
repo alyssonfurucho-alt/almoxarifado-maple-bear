@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { fmtR } from '../lib/utils'
+import { fmtR, fmtData } from '../lib/utils'
 
 export default function Estoque() {
   const [estoque, setEstoque]           = useState([])
@@ -8,9 +8,10 @@ export default function Estoque() {
   const [loading, setLoading]           = useState(true)
   const [busca, setBusca]               = useState('')
   const [mostrarZerados, setMostrarZerados] = useState(false)
+  const [filtroAbaixoMedia, setFiltroAbaixoMedia] = useState(false)
   const [modal, setModal]               = useState(false)
   const [modalEntrada, setModalEntrada] = useState(null)
-  const emptyForm = { produto_id:'', categoria:'Material escolar', custo_unitario:'', quantidade:'', unidade:'un', inventario:false }
+  const emptyForm = { produto_id:'', categoria:'', custo_unitario:'', quantidade:'', unidade:'un', inventario:false }
   const [form, setForm]                 = useState(emptyForm)
   const [entQtd, setEntQtd]            = useState('')
   const [entCusto, setEntCusto]         = useState('')
@@ -18,16 +19,48 @@ export default function Estoque() {
   const [buscaProduto, setBuscaProduto] = useState('')
   const [sugestoes, setSugestoes]       = useState([])
   const [mostrarSugestoes, setMostrarSugestoes] = useState(false)
+  const [mediasMensais, setMediasMensais]       = useState({})
+  const [categoriasDB, setCategoriasDB]         = useState([])
+  const [ultimasEntradas, setUltimasEntradas]   = useState({}) // { estoque_id: data } // { estoque_id: media }
 
   useEffect(() => { load() }, [])
 
   async function load() {
-    const [{ data: e }, { data: p }] = await Promise.all([
+    // data de 3 meses atrás para calcular média
+    const tresMesesAtras = new Date()
+    tresMesesAtras.setMonth(tresMesesAtras.getMonth() - 3)
+    const dataInicio = tresMesesAtras.toISOString().split('T')[0]
+
+    const [{ data: e }, { data: p }, { data: saidas }, { data: cats }, { data: movs }] = await Promise.all([
       supabase.from('estoque').select('*, produtos(id,nome,codigo_barras,cor,tamanho)').order('nome'),
       supabase.from('produtos').select('*').eq('ativo', true).order('nome'),
+      supabase.from('saidas').select('item_id, quantidade, data_saida').gte('data_saida', dataInicio),
+      supabase.from('categorias').select('id, nome').eq('ativo', true).order('nome'),
+      supabase.from('movimentacoes').select('item_id, created_at').eq('tipo', 'entrada').order('created_at', { ascending: false }),
     ])
+
     setEstoque(e || [])
     setProdutos(p || [])
+
+    // calcula média mensal por item (total saídas / 3 meses)
+    const totais = {}
+    for (const s of saidas || []) {
+      if (!s.item_id) continue
+      totais[s.item_id] = (totais[s.item_id] || 0) + s.quantidade
+    }
+    const medias = {}
+    for (const [id, total] of Object.entries(totais)) {
+      medias[id] = Math.round((total / 3) * 10) / 10  // 1 casa decimal
+    }
+    setMediasMensais(medias)
+    setCategoriasDB(cats || [])
+
+    // última entrada por item (primeiro resultado já é o mais recente)
+    const ultimas = {}
+    for (const m of movs || []) {
+      if (!ultimas[m.item_id]) ultimas[m.item_id] = m.created_at
+    }
+    setUltimasEntradas(ultimas)
     setLoading(false)
   }
 
@@ -128,6 +161,7 @@ export default function Estoque() {
 
   const lista = estoque
     .filter(i => mostrarZerados ? true : i.quantidade > 0)
+    .filter(i => filtroAbaixoMedia ? (mediasMensais[i.id] > 0 && i.quantidade < mediasMensais[i.id]) : true)
     .filter(i => {
       const q = busca.toLowerCase()
       return !q || nomeItem(i).toLowerCase().includes(q) ||
@@ -151,6 +185,7 @@ export default function Estoque() {
         <div className="metric-card"><div className="metric-label">Total de itens</div><div className="metric-value blue">{estoque.length}</div></div>
         <div className="metric-card"><div className="metric-label">Em estoque</div><div className="metric-value green">{estoque.filter(i => i.quantidade > 0).length}</div></div>
         <div className="metric-card"><div className="metric-label">Zerados</div><div className="metric-value red">{totalZerados}</div></div>
+        <div className="metric-card"><div className="metric-label">Abaixo da média</div><div className="metric-value red">{estoque.filter(i => i.quantidade > 0 && mediasMensais[i.id] > 0 && i.quantidade < mediasMensais[i.id]).length}</div></div>
         <div className="metric-card"><div className="metric-label">Inventário</div><div className="metric-value">{estoque.filter(i => i.inventario).length}</div></div>
       </div>
 
@@ -161,6 +196,10 @@ export default function Estoque() {
         <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, cursor:'pointer', color:'#555', whiteSpace:'nowrap' }}>
           <input type="checkbox" checked={mostrarZerados} onChange={e => setMostrarZerados(e.target.checked)} style={{ accentColor:'#1d4ed8' }} />
           Mostrar zerados {totalZerados > 0 && `(${totalZerados})`}
+        </label>
+        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, cursor:'pointer', color: filtroAbaixoMedia ? '#dc2626' : '#555', whiteSpace:'nowrap' }}>
+          <input type="checkbox" checked={filtroAbaixoMedia} onChange={e => setFiltroAbaixoMedia(e.target.checked)} style={{ accentColor:'#dc2626' }} />
+          Apenas abaixo da média
         </label>
       </div>
 
@@ -181,6 +220,29 @@ export default function Estoque() {
                 <td>{tamItem(i) || <span style={{ color:'#ccc' }}>—</span>}</td>
                 <td>{i.categoria}</td>
                 <td>{i.quantidade} {i.unidade}</td>
+                <td>
+                  {mediasMensais[i.id]
+                    ? <span style={{
+                        fontSize: 13,
+                        color: mediasMensais[i.id] > 0 && i.quantidade < mediasMensais[i.id] ? '#dc2626' : '#555',
+                        fontWeight: mediasMensais[i.id] > 0 && i.quantidade < mediasMensais[i.id] ? 600 : 400,
+                      }}>
+                        {mediasMensais[i.id]} {i.unidade}
+                      </span>
+                    : <span style={{ color: '#ccc', fontSize: 12 }}>sem histórico</span>}
+                </td>
+                <td>
+                  {ultimasEntradas[i.id]
+                    ? <span style={{ fontSize: 12 }}>{fmtData(ultimasEntradas[i.id])}</span>
+                    : <span style={{ color: '#ccc', fontSize: 12 }}>—</span>}
+                </td>
+                <td>
+                  {ultimasEntradas[i.id]
+                    ? <span style={{ fontSize: 12, color: '#555' }}>
+                        {new Date(ultimasEntradas[i.id]).toLocaleDateString('pt-BR')}
+                      </span>
+                    : <span style={{ color: '#ccc', fontSize: 12 }}>—</span>}
+                </td>
                 <td>{fmtR(i.custo_unitario)}</td>
                 <td>
                   {i.custo_medio > 0
@@ -197,7 +259,13 @@ export default function Estoque() {
                     {i.inventario ? 'Sim' : 'Não'}
                   </button>
                 </td>
-                <td>{i.quantidade === 0 ? <span className="badge badge-danger">Sem estoque</span> : i.quantidade < 5 ? <span className="badge badge-warning">Baixo</span> : <span className="badge badge-success">OK</span>}</td>
+                <td>{(() => {
+                  const media = mediasMensais[i.id] || 0
+                  if (i.quantidade === 0) return <span className="badge badge-danger">Sem estoque</span>
+                  if (media > 0 && i.quantidade < media) return <span className="badge badge-danger">Abaixo da média</span>
+                  if (i.quantidade < 5) return <span className="badge badge-warning">Baixo</span>
+                  return <span className="badge badge-success">OK</span>
+                })()}</td>
                 <td><button className="btn btn-sm" onClick={() => { setModalEntrada(i); setEntQtd(''); setEntCusto(i.custo_unitario?.toString() || '') }}>+ Entrada</button></td>
               </tr>
             ))}
@@ -238,7 +306,8 @@ export default function Estoque() {
           <div className="form-grid">
             <div className="form-row"><label>Categoria</label>
               <select value={form.categoria} onChange={f('categoria')}>
-                <option>Material escolar</option><option>Limpeza</option><option>Escritório</option><option>Esportivo</option><option>Outro</option>
+                <option value="">Selecione...</option>
+                {categoriasDB.map(cat => <option key={cat.id}>{cat.nome}</option>)}
               </select>
             </div>
             <div className="form-row"><label>Custo unitário (R$)</label>

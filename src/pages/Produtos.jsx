@@ -13,15 +13,25 @@ export default function Produtos() {
   const [editando, setEditando] = useState(null)
   const [saving, setSaving] = useState(false)
   const [busca, setBusca] = useState('')
-  const emptyForm = { codigo_barras: '', nome: '', cor: '', tamanho: '', categoria: 'Material escolar' }
+  const emptyForm = { codigo_barras: '', nome: '', cor: '', tamanho: '', categoria: '' }
+  const [categoriasDB, setCategoriasDB] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [erroCodigo, setErroCodigo] = useState('')
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); loadCategorias() }, [])
+
+  async function loadCategorias() {
+    const { data } = await supabase.from('categorias').select('id,nome').eq('ativo',true).order('nome')
+    setCategoriasDB(data || [])
+  }
 
   async function load() {
-    const { data } = await supabase.from('produtos').select('*').order('nome')
+    const [{ data }, { data: cats }] = await Promise.all([
+      supabase.from('produtos').select('*').order('nome'),
+      supabase.from('categorias').select('id,nome').eq('ativo', true).order('nome'),
+    ])
     setProdutos(data || [])
+    setCategorias(cats || [])
     setLoading(false)
   }
 
@@ -204,11 +214,8 @@ export default function Produtos() {
             <div className="form-row">
               <label>Categoria</label>
               <select value={form.categoria} onChange={f('categoria')}>
-                <option>Material escolar</option>
-                <option>Limpeza</option>
-                <option>Escritório</option>
-                <option>Esportivo</option>
-                <option>Outro</option>
+                <option value="">Selecione...</option>
+                {categoriasDB.map(cat => <option key={cat.id}>{cat.nome}</option>)}
               </select>
             </div>
           </div>
