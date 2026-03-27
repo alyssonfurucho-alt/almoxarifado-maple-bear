@@ -13,6 +13,7 @@ export default function Estoque() {
   const emptyForm = { produto_id:'', categoria:'Material escolar', custo_unitario:'', quantidade:'', unidade:'un', inventario:false }
   const [form, setForm]                 = useState(emptyForm)
   const [entQtd, setEntQtd]            = useState('')
+  const [entCusto, setEntCusto]         = useState('')
   const [saving, setSaving]             = useState(false)
   const [buscaProduto, setBuscaProduto] = useState('')
   const [sugestoes, setSugestoes]       = useState([])
@@ -64,29 +65,33 @@ export default function Estoque() {
   }
 
   async function entrada() {
-    const n = parseInt(entQtd)
+    const n    = parseInt(entQtd)
+    const novo_custo = parseFloat(entCusto)
     if (!n || n < 1) return alert('Informe a quantidade')
+    if (!entCusto || isNaN(novo_custo) || novo_custo < 0) return alert('Informe o custo unitário')
     setSaving(true)
-    const qtdAtual   = modalEntrada.quantidade || 0
-    const custoAtual = modalEntrada.custo_unitario || 0
-    const novaQtd    = qtdAtual + n
-    // custo médio ponderado: (qtdAtual * custoAtual + n * custoAtual) / novaQtd
-    // mantém custo_unitario como referência; custo_medio é média ponderada histórica
+    const qtdAtual       = modalEntrada.quantidade || 0
+    const novaQtd        = qtdAtual + n
+    const custoMedioAnt  = modalEntrada.custo_medio || modalEntrada.custo_unitario || 0
+    // custo médio ponderado com o novo custo informado
     const custoMedio = qtdAtual > 0
-      ? ((qtdAtual * (modalEntrada.custo_medio || custoAtual)) + (n * custoAtual)) / novaQtd
-      : custoAtual
+      ? ((qtdAtual * custoMedioAnt) + (n * novo_custo)) / novaQtd
+      : novo_custo
     await supabase.from('estoque').update({
-      quantidade:    novaQtd,
-      custo_medio:   parseFloat(custoMedio.toFixed(2)),
-      ultimo_custo:  custoAtual,
+      quantidade:     novaQtd,
+      custo_unitario: novo_custo,
+      custo_medio:    parseFloat(custoMedio.toFixed(2)),
+      ultimo_custo:   novo_custo,
       total_entradas: (modalEntrada.total_entradas || 0) + n,
     }).eq('id', modalEntrada.id)
     await supabase.from('movimentacoes').insert({
-      item_id: modalEntrada.id,
-      item_nome: modalEntrada.produtos?.nome || modalEntrada.nome,
-      tipo: 'entrada', quantidade: n, observacoes: 'Entrada manual',
+      item_id:    modalEntrada.id,
+      item_nome:  modalEntrada.produtos?.nome || modalEntrada.nome,
+      tipo:       'entrada',
+      quantidade: n,
+      observacoes: `Entrada manual — custo: R$ ${novo_custo.toFixed(2)}`,
     })
-    setModalEntrada(null); setEntQtd(''); setSaving(false); load()
+    setModalEntrada(null); setEntQtd(''); setEntCusto(''); setSaving(false); load()
   }
 
   async function toggleInventario(item) {
@@ -193,7 +198,7 @@ export default function Estoque() {
                   </button>
                 </td>
                 <td>{i.quantidade === 0 ? <span className="badge badge-danger">Sem estoque</span> : i.quantidade < 5 ? <span className="badge badge-warning">Baixo</span> : <span className="badge badge-success">OK</span>}</td>
-                <td><button className="btn btn-sm" onClick={() => { setModalEntrada(i); setEntQtd('') }}>+ Entrada</button></td>
+                <td><button className="btn btn-sm" onClick={() => { setModalEntrada(i); setEntQtd(''); setEntCusto(i.custo_unitario?.toString() || '') }}>+ Entrada</button></td>
               </tr>
             ))}
             {!lista.length && <tr><td colSpan={12} className="empty">{mostrarZerados ? 'Nenhum item encontrado' : 'Nenhum item em estoque'}</td></tr>}
@@ -261,19 +266,67 @@ export default function Estoque() {
 
       {/* Modal entrada */}
       <div className={`modal-overlay${modalEntrada ? ' open' : ''}`}>
-        <div className="modal" style={{ width:360 }}>
+        <div className="modal" style={{ width:420 }}>
           <h3>Entrada de estoque</h3>
-          <p style={{ fontSize:13, color:'#888', marginBottom:12 }}>
+          <p style={{ fontSize:13, color:'#888', marginBottom:16 }}>
             Produto: <strong>{modalEntrada ? nomeItem(modalEntrada) : ''}</strong>
             {modalEntrada && corItem(modalEntrada) && <span style={{ color:'#888' }}> — {corItem(modalEntrada)}</span>}
             {modalEntrada && tamItem(modalEntrada) && <span style={{ color:'#888' }}> {tamItem(modalEntrada)}</span>}
           </p>
-          <div className="form-row"><label>Quantidade a adicionar</label>
-            <input type="number" min="1" value={entQtd} onChange={e => setEntQtd(e.target.value)} placeholder="0" />
+
+          {/* indicadores de custo atual */}
+          {modalEntrada && (modalEntrada.custo_medio > 0 || modalEntrada.ultimo_custo > 0) && (
+            <div style={{ display:'flex', gap:12, marginBottom:16 }}>
+              {modalEntrada.custo_medio > 0 && (
+                <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8, padding:'8px 14px', flex:1 }}>
+                  <div style={{ fontSize:11, color:'#16a34a', marginBottom:2 }}>Custo médio atual</div>
+                  <div style={{ fontWeight:600, color:'#16a34a' }}>R$ {modalEntrada.custo_medio?.toFixed(2).replace('.',',')}</div>
+                </div>
+              )}
+              {modalEntrada.ultimo_custo > 0 && (
+                <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8, padding:'8px 14px', flex:1 }}>
+                  <div style={{ fontSize:11, color:'#d97706', marginBottom:2 }}>Último custo</div>
+                  <div style={{ fontWeight:600, color:'#d97706' }}>R$ {modalEntrada.ultimo_custo?.toFixed(2).replace('.',',')}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="form-grid">
+            <div className="form-row">
+              <label>Quantidade a adicionar</label>
+              <input type="number" min="1" value={entQtd} onChange={e => setEntQtd(e.target.value)} placeholder="0" autoFocus />
+            </div>
+            <div className="form-row">
+              <label>Custo unitário (R$)</label>
+              <input type="number" min="0" step="0.01" value={entCusto} onChange={e => setEntCusto(e.target.value)} placeholder="0,00" />
+            </div>
           </div>
+
+          {/* prévia do novo custo médio */}
+          {entQtd && entCusto && modalEntrada && (() => {
+            const n = parseInt(entQtd) || 0
+            const novoCusto = parseFloat(entCusto) || 0
+            const qtdAtual = modalEntrada.quantidade || 0
+            const novaQtd = qtdAtual + n
+            const custoMedioAnt = modalEntrada.custo_medio || modalEntrada.custo_unitario || 0
+            const novoMedio = qtdAtual > 0
+              ? ((qtdAtual * custoMedioAnt) + (n * novoCusto)) / novaQtd
+              : novoCusto
+            return (
+              <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'10px 14px', marginBottom:12, fontSize:13 }}>
+                <div style={{ color:'#1d4ed8', fontWeight:500, marginBottom:4 }}>Prévia após entrada</div>
+                <div style={{ display:'flex', gap:20, color:'#555' }}>
+                  <span>Estoque: <strong>{qtdAtual} → {novaQtd}</strong></span>
+                  <span>Novo custo médio: <strong style={{ color:'#16a34a' }}>R$ {novoMedio.toFixed(2).replace('.',',')}</strong></span>
+                </div>
+              </div>
+            )
+          })()}
+
           <div className="modal-footer">
-            <button className="btn" onClick={() => setModalEntrada(null)}>Cancelar</button>
-            <button className="btn btn-primary" onClick={entrada} disabled={saving}>{saving ? 'Salvando...' : 'Confirmar'}</button>
+            <button className="btn" onClick={() => { setModalEntrada(null); setEntCusto('') }}>Cancelar</button>
+            <button className="btn btn-primary" onClick={entrada} disabled={saving}>{saving ? 'Salvando...' : 'Confirmar entrada'}</button>
           </div>
         </div>
       </div>
