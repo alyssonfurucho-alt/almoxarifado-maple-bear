@@ -22,8 +22,8 @@ export default function Saidas() {
 
   async function load() {
     const [{ data: s }, { data: i }, { data: p }, { data: t }] = await Promise.all([
-      supabase.from('saidas').select('*, estoque(nome,custo_unitario,produtos(nome,cor,tamanho,codigo_barras)), professores(nome,registro), turmas(codigo)').order('created_at', { ascending: false }),
-      supabase.from('estoque').select('id,nome,quantidade,unidade,produtos(nome,cor,tamanho,codigo_barras)').order('nome'),
+      supabase.from('saidas').select('*, estoque(nome,custo_unitario,ultimo_custo,produtos(nome,cor,tamanho,codigo_barras)), professores(nome,registro), turmas(codigo)').order('created_at', { ascending: false }),
+      supabase.from('estoque').select('id,nome,quantidade,unidade,custo_unitario,ultimo_custo,custo_medio,produtos(nome,cor,tamanho,codigo_barras)').order('nome'),
       supabase.from('professores').select('id,nome,registro').eq('ativo', true).order('nome'),
       supabase.from('turmas').select('id,codigo').eq('ativo', true).order('codigo'),
     ])
@@ -79,6 +79,7 @@ export default function Saidas() {
     setSaving(true)
     for (const l of validas) {
       const item = estoque.find(i => i.id === l.item_id)
+      const custoSaida = item.ultimo_custo || item.custo_unitario || 0
       const { data: saida } = await supabase.from('saidas').insert({
         item_id: l.item_id,
         quantidade: parseInt(l.quantidade),
@@ -88,6 +89,7 @@ export default function Saidas() {
         devolvivel: l.devolvivel,
         data_devolucao_prevista: l.devolvivel ? l.data_devolucao_prevista : null,
         devolvido: 0, observacoes,
+        custo_unitario_saida: custoSaida,
       }).select().single()
       await supabase.from('estoque').update({ quantidade: item.quantidade - parseInt(l.quantidade) }).eq('id', l.item_id)
       // se professor for "Inventário", marca o item de estoque como inventario
@@ -140,7 +142,7 @@ export default function Saidas() {
                   <td>{s.quantidade}</td>
                   <td>{s.professores?.nome || s.professor_nome_snapshot || '—'}</td>
                   <td><strong style={{ fontWeight: 500 }}>{s.turmas?.codigo || s.turma_codigo_snapshot || '—'}</strong></td>
-                  <td>{fmtR((s.estoque?.custo_unitario || 0) * s.quantidade)}</td>
+                  <td>{fmtR((s.custo_unitario_saida || s.estoque?.custo_unitario || 0) * s.quantidade)}</td>
                   <td>{s.devolvivel ? <span className="badge badge-info">Sim</span> : <span className="badge badge-neutral">Não</span>}</td>
                   <td>{s.devolvivel ? fmtData(s.data_devolucao_prevista) : '-'}</td>
                   <td><span className={`badge ${st.cls}`}>{st.label}</span></td>
@@ -217,7 +219,7 @@ export default function Saidas() {
                       )}
                       {itemSel && (
                         <span style={{ fontSize: 12, color: '#888', marginLeft: 'auto' }}>
-                          Estoque: {itemSel.quantidade} {itemSel.unidade} · {fmtR(itemSel.custo_unitario)} un
+                          Estoque: {itemSel.quantidade} {itemSel.unidade} · Último custo: {fmtR(itemSel.ultimo_custo || itemSel.custo_unitario || 0)} un
                           {linha.quantidade > 0 && <strong style={{ color: '#1d4ed8' }}> · Total: {fmtR(itemSel.custo_unitario * parseInt(linha.quantidade || 0))}</strong>}
                         </span>
                       )}
@@ -229,7 +231,7 @@ export default function Saidas() {
 
             {linhas.some(l => l.item_id) && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '6px 4px', fontSize: 13, color: '#555', borderTop: '1px solid #e8e8e5', marginTop: 4 }}>
-                Total:&nbsp;<strong style={{ color: '#1d4ed8' }}>{fmtR(linhas.reduce((acc, l) => { const i = estoquePorItem[l.item_id]; return acc + (i ? i.custo_unitario * parseInt(l.quantidade || 0) : 0) }, 0))}</strong>
+                Total:&nbsp;<strong style={{ color: '#1d4ed8' }}>{fmtR(linhas.reduce((acc, l) => { const i = estoquePorItem[l.item_id]; return acc + (i ? (i.ultimo_custo || i.custo_unitario || 0) * parseInt(l.quantidade || 0) : 0) }, 0))}</strong>
               </div>
             )}
           </div>

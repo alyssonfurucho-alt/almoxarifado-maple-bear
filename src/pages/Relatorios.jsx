@@ -29,6 +29,9 @@ export default function Relatorios() {
   }
 
   // ── helpers ──
+  // custo real no momento da saída
+  const custoSaida = s => s.custo_unitario_saida || s.estoque?.custo_unitario || 0
+
   function nomeProdSaida(s) {
     const p = s.estoque?.produtos
     if (!p) return s.estoque?.nome || '—'
@@ -56,7 +59,7 @@ export default function Relatorios() {
       const consumido = s.quantidade - (s.devolvido||0)
       porItem[itemNome].meses[mes] += consumido
       porItem[itemNome].totalQtd   += consumido
-      porItem[itemNome].totalCusto += (s.estoque?.custo_unitario||0) * consumido
+      porItem[itemNome].totalCusto += custoSaida(s) * consumido
     })
     return Object.values(porItem).map(item => {
       const meses = Object.values(item.meses)
@@ -87,7 +90,7 @@ export default function Relatorios() {
       const consumido = s.quantidade - (s.devolvido||0)
       porProf[nome].meses[mes] += consumido
       porProf[nome].totalQtd   += consumido
-      porProf[nome].totalCusto += (s.estoque?.custo_unitario||0) * consumido
+      porProf[nome].totalCusto += custoSaida(s) * consumido
     })
     return Object.values(porProf).map(p => {
       const meses = Object.values(p.meses)
@@ -116,7 +119,7 @@ export default function Relatorios() {
       const consumido = s.quantidade - (s.devolvido||0)
       porTurma[cod].meses[mes] += consumido
       porTurma[cod].totalQtd   += consumido
-      porTurma[cod].totalCusto += (s.estoque?.custo_unitario||0) * consumido
+      porTurma[cod].totalCusto += custoSaida(s) * consumido
     })
     return Object.values(porTurma).map(t => {
       const meses = Object.values(t.meses)
@@ -148,7 +151,7 @@ export default function Relatorios() {
     const k = turmaSaida(s)
     if (!porTurma[k]) porTurma[k]={ turma:k, itens:0, custo:0, pend:0 }
     porTurma[k].itens += s.quantidade
-    porTurma[k].custo += (s.estoque?.custo_unitario||0)*s.quantidade
+    porTurma[k].custo += custoSaida(s)*s.quantidade
     if (s.devolvivel) porTurma[k].pend += s.quantidade-s.devolvido
   })
 
@@ -160,7 +163,7 @@ export default function Relatorios() {
     if (!porProf[nome]) porProf[nome]={ nome, registro:reg, saidas:0, itens:0, custo:0, dev:0, pend:0, venc:0, avarias:0 }
     porProf[nome].saidas++
     porProf[nome].itens += s.quantidade
-    porProf[nome].custo += (s.estoque?.custo_unitario||0)*s.quantidade
+    porProf[nome].custo += custoSaida(s)*s.quantidade
     if (s.devolvivel){
       porProf[nome].dev  += s.devolvido
       porProf[nome].pend += s.quantidade-s.devolvido
@@ -181,7 +184,7 @@ export default function Relatorios() {
     if (!consumo[nome]) consumo[nome]={ retirado:0, devolvido:0, custo:0, avarias:0 }
     consumo[nome].retirado  += s.quantidade
     consumo[nome].devolvido += s.devolvido
-    consumo[nome].custo     += (s.estoque?.custo_unitario||0)*s.quantidade
+    consumo[nome].custo     += custoSaida(s)*s.quantidade
   })
   devolucoes.filter(d=>d.avaria).forEach(d=>{
     const nome = d.saidas?.estoque?.nome
@@ -240,7 +243,7 @@ export default function Relatorios() {
             </div>
             <div className="metric-card">
               <div className="metric-label">Custo total período</div>
-              <div className="metric-value">{fmtR(saidasFiltradas.reduce((a,s)=>a+(s.estoque?.custo_unitario||0)*s.quantidade,0))}</div>
+              <div className="metric-value">{fmtR(saidasFiltradas.reduce((a,s)=>a+custoSaida(s)*s.quantidade,0))}</div>
             </div>
             <div className="metric-card">
               <div className="metric-label">Meses analisados</div>
@@ -437,7 +440,7 @@ export default function Relatorios() {
                       <td>{s.devolvivel?'Sim':'Não'}</td>
                       <td>{s.devolvivel?fmtData(s.data_devolucao_prevista):'-'}</td>
                       <td><span className={`badge ${st.cls}`}>{st.label}</span></td>
-                      <td>{fmtR((s.estoque?.custo_unitario||0)*s.quantidade)}</td>
+                      <td>{fmtR(custoSaida(s)*s.quantidade)}</td>
                     </tr>
                   )
                 })}
