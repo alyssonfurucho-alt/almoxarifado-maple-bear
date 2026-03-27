@@ -48,8 +48,19 @@ export default function Layout() {
 
         {/* Logo */}
         <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid #e8e8e5', flexShrink: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#1a1a1a' }}>Almoxarifado</div>
-          <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Escola Municipal</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img
+              src="/maple-bear-logo.png"
+              alt="Maple Bear"
+              style={{ width: 38, height: 38, objectFit: 'contain', flexShrink: 0 }}
+              onError={e => e.target.style.display='none'}
+            />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', lineHeight: 1.2 }}>Maple Bear</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#c8102e', lineHeight: 1.2 }}>Dourados</div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>Almoxarifado</div>
+            </div>
+          </div>
         </div>
 
         {/* Nav scrollável com grupos */}
