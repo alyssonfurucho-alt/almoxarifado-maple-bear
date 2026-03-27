@@ -99,7 +99,6 @@ export default function Historico() {
               <th>Professor(a)</th>
               <th>Registro</th>
               <th>Turma</th>
-              
               <th>Observações</th>
             </tr>
           </thead>
@@ -127,12 +126,11 @@ export default function Historico() {
                   <td>{nomeProfessor}</td>
                   <td><span className="badge badge-neutral" style={{fontSize:11}}>{registro}</span></td>
                   <td><strong style={{fontWeight:500}}>{codigoTurma==='—'?'—':codigoTurma}</strong></td>
-                  <td>{turno==='—'?'—':turno}</td>
                   <td style={{fontSize:12,color:'#888',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.observacoes||'—'}</td>
                 </tr>
               )
             })}
-            {!lista.length && <tr><td colSpan={9} className="empty">Nenhuma movimentação encontrada</td></tr>}
+            {!lista.length && <tr><td colSpan={8} className="empty">Nenhuma movimentação encontrada</td></tr>}
           </tbody>
         </table>
       </div>
