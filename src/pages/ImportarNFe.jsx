@@ -156,7 +156,7 @@ export default function ImportarNFe() {
     setStepIdx(0)
     setStepQtd(copia[0].qtd)
     setStepCat(copia[0].categoria)
-    setStepEan(copia[0].ean || '')
+    setStepEan('')
     setStepEanErro('')
     setStepPular(false)
     setEtapa('confirmando')
@@ -164,22 +164,46 @@ export default function ImportarNFe() {
 
   // ── avança para próximo item no step ──
   function stepProximo(pular = false) {
-    // valida EAN antes de avançar (só se não for pular)
+    const eanDigitado = stepEan.trim()
+    const eanNota     = stepLinhas[stepIdx]?.ean || ''
+    const semEanNota  = !eanNota  // nota não tem código
+
     if (!pular) {
-      const eanValor = stepEan.trim()
-      if (!eanValor) {
-        setStepEanErro('Obrigatório: confirme o código ou digite "indisponível"')
+      // campo vazio — bloqueia sempre
+      if (!eanDigitado) {
+        setStepEanErro(semEanNota
+          ? 'Digite "indisponível" para avançar'
+          : 'Digite o código de barras da nota fiscal para avançar')
         return
       }
+
+      // nota TEM código — usuário precisa digitar exatamente o mesmo
+      if (!semEanNota) {
+        const eanDigitadoLimpo = eanDigitado.replace(/\D/g, '')
+        if (eanDigitadoLimpo !== eanNota) {
+          setStepEanErro(`Código incorreto. Digite exatamente: ${eanNota}`)
+          return
+        }
+      }
+
+      // nota NÃO tem código — só aceita "indisponível"
+      if (semEanNota) {
+        const v = eanDigitado.toLowerCase()
+        if (v !== 'indisponível' && v !== 'indisponivel') {
+          setStepEanErro('A nota não possui código de barras. Digite "indisponível" para avançar.')
+          return
+        }
+      }
+
       setStepEanErro('')
     }
 
     // salva o estado atual do item
     const eanValor = stepEan.trim().toLowerCase()
     const eanFinal = pular
-      ? ''
-      : eanValor === 'indisponível' || eanValor === 'indisponivel' || eanValor === 'nd' || eanValor === 'n/d'
-        ? null   // salva como null no banco
+      ? stepLinhas[stepIdx]?.ean || null  // pular mantém original
+      : (eanValor === 'indisponível' || eanValor === 'indisponivel')
+        ? null
         : stepEan.replace(/\D/g, '')
     setStepLinhas(prev => prev.map((l, i) => {
       if (i !== stepIdx) return l
@@ -197,7 +221,7 @@ export default function ImportarNFe() {
       setStepIdx(proximo)
       setStepQtd(stepLinhas[proximo].qtd)
       setStepCat(stepLinhas[proximo].categoria)
-      setStepEan(stepLinhas[proximo].ean || '')
+      setStepEan('')
       setStepEanErro('')
       setStepPular(false)
     }
@@ -209,7 +233,7 @@ export default function ImportarNFe() {
     setStepIdx(ant)
     setStepQtd(stepLinhas[ant].qtd)
     setStepCat(stepLinhas[ant].categoria)
-    setStepEan(stepLinhas[ant].ean || '')
+    setStepEan('')
     setStepEanErro('')
     setStepPular(false)
   }
@@ -528,80 +552,68 @@ export default function ImportarNFe() {
                     />
                   </div>
                 </div>
-                {/* ── campo de confirmação do código de barras ── */}
+                {/* ── confirmação obrigatória do código de barras ── */}
                 <div className="form-row" style={{ marginTop: 4 }}>
                   <label>
-                    Código de barras (EAN)
+                    Confirmação do código de barras
                     <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>
-                    {itemAtual.ean
-                      ? <span style={{ marginLeft: 6, fontSize: 11, color: '#16a34a', fontWeight: 500 }}>✓ lido da NF-e</span>
-                      : <span style={{ marginLeft: 6, fontSize: 11, color: '#d97706' }}>não informado na NF-e</span>}
                   </label>
 
-                  {/* botões de ação rápida */}
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-                    {itemAtual.ean && (
-                      <button type="button"
-                        onClick={() => { setStepEan(itemAtual.ean); setStepEanErro('') }}
-                        style={{
-                          padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
-                          border: stepEan === itemAtual.ean ? '1px solid #16a34a' : '1px solid #d1d5db',
-                          background: stepEan === itemAtual.ean ? '#dcfce7' : '#fff',
-                          color: stepEan === itemAtual.ean ? '#16a34a' : '#555',
-                          fontFamily: 'monospace',
-                        }}>
-                        {stepEan === itemAtual.ean ? '✓ ' : ''}{itemAtual.ean}
-                      </button>
-                    )}
-                    <button type="button"
-                      onClick={() => { setStepEan('indisponível'); setStepEanErro('') }}
-                      style={{
-                        padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
-                        border: stepEan === 'indisponível' ? '1px solid #d97706' : '1px solid #d1d5db',
-                        background: stepEan === 'indisponível' ? '#fef3c7' : '#fff',
-                        color: stepEan === 'indisponível' ? '#d97706' : '#555',
-                      }}>
-                      {stepEan === 'indisponível' ? '✓ ' : ''}Indisponível
-                    </button>
+                  {/* instrução contextual */}
+                  <div style={{
+                    padding: '8px 12px', borderRadius: 8, marginBottom: 8, fontSize: 12,
+                    background: itemAtual.ean ? '#eff6ff' : '#fef3c7',
+                    color: itemAtual.ean ? '#1d4ed8' : '#d97706',
+                    border: `1px solid ${itemAtual.ean ? '#bfdbfe' : '#fde68a'}`,
+                  }}>
+                    {itemAtual.ean
+                      ? <>Digite o código de barras da nota fiscal para confirmar: <strong style={{ fontFamily:'monospace' }}>{itemAtual.ean}</strong></>
+                      : <>Esta nota não possui código de barras. Digite <strong>indisponível</strong> para avançar.</>}
                   </div>
 
-                  {/* input manual */}
                   <input
                     value={stepEan}
-                    onChange={e => {
-                      // permite digitar números ou a palavra "indisponível"
-                      const v = e.target.value
-                      const vNum = v.replace(/\D/g, '')
-                      // se está digitando letras assume que quer "indisponível"
-                      if (/[a-zA-ZÃÀÁÂãàáâÍÌÎíìîÉÈÊéèêÓÒÔóòôÚÙÛúùû]/.test(v)) {
-                        setStepEan(v)
-                      } else {
-                        setStepEan(vNum)
-                      }
-                      setStepEanErro('')
-                    }}
-                    placeholder={itemAtual.ean ? itemAtual.ean : 'Digite o EAN ou clique em Indisponível'}
-                    inputMode="text"
+                    onChange={e => { setStepEan(e.target.value); setStepEanErro('') }}
+                    onKeyDown={e => { if (e.key === 'Enter') stepProximo(false) }}
+                    placeholder={itemAtual.ean ? 'Digite o código de barras...' : 'indisponível'}
+                    inputMode={itemAtual.ean ? 'numeric' : 'text'}
+                    autoFocus
                     style={{
-                      fontFamily: stepEan === 'indisponível' ? 'sans-serif' : 'monospace',
-                      letterSpacing: stepEan === 'indisponível' ? 0 : 2,
+                      fontFamily: 'monospace',
+                      letterSpacing: 1,
+                      fontSize: 15,
                       borderColor: stepEanErro ? '#dc2626'
-                        : stepEan && (stepEan === itemAtual.ean || stepEan === 'indisponível') ? '#16a34a'
-                        : stepEan ? '#d97706'
+                        : stepEan && !stepEanErro && (
+                            stepEan.replace(/\D/g,'') === itemAtual.ean ||
+                            stepEan.toLowerCase().trim() === 'indisponível' ||
+                            stepEan.toLowerCase().trim() === 'indisponivel'
+                          ) ? '#16a34a'
                         : undefined,
                     }}
                   />
+
+                  {/* feedback em tempo real */}
+                  {stepEan && (() => {
+                    const v = stepEan.trim().toLowerCase()
+                    const vNum = stepEan.replace(/\D/g,'')
+                    const isIndisp = v === 'indisponível' || v === 'indisponivel'
+                    const isCorreto = itemAtual.ean ? vNum === itemAtual.ean : isIndisp
+                    if (isCorreto) return (
+                      <div style={{ fontSize:12, color:'#16a34a', marginTop:4, fontWeight:500 }}>
+                        ✓ {isIndisp ? 'Será salvo sem código de barras' : 'Código confirmado'}
+                      </div>
+                    )
+                    if (itemAtual.ean && vNum && vNum !== itemAtual.ean) return (
+                      <div style={{ fontSize:12, color:'#dc2626', marginTop:4 }}>
+                        Código diferente do informado na nota fiscal
+                      </div>
+                    )
+                    return null
+                  })()}
+
                   {stepEanErro && (
-                    <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{stepEanErro}</div>
-                  )}
-                  {stepEan && stepEan !== 'indisponível' && itemAtual.ean && stepEan !== itemAtual.ean && (
-                    <div style={{ fontSize: 11, color: '#d97706', marginTop: 4 }}>
-                      ⚠ Código diferente do informado na NF-e ({itemAtual.ean}). O código digitado será salvo.
-                    </div>
-                  )}
-                  {stepEan === 'indisponível' && (
-                    <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
-                      O produto será salvo sem código de barras.
+                    <div style={{ fontSize:12, color:'#dc2626', marginTop:4, fontWeight:500 }}>
+                      ⛔ {stepEanErro}
                     </div>
                   )}
                 </div>
