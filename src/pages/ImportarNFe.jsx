@@ -166,16 +166,21 @@ export default function ImportarNFe() {
   function stepProximo(pular = false) {
     // valida EAN antes de avançar (só se não for pular)
     if (!pular) {
-      const eanLimpo = stepEan.replace(/\D/g, '')
-      // se o item não tinha EAN e o usuário digitou um, valida unicidade
-      if (eanLimpo && eanLimpo !== (stepLinhas[stepIdx]?.ean || '')) {
-        // aceita — será salvo como novo EAN
+      const eanValor = stepEan.trim()
+      if (!eanValor) {
+        setStepEanErro('Obrigatório: confirme o código ou digite "indisponível"')
+        return
       }
       setStepEanErro('')
     }
 
     // salva o estado atual do item
-    const eanFinal = pular ? '' : stepEan.replace(/\D/g, '')
+    const eanValor = stepEan.trim().toLowerCase()
+    const eanFinal = pular
+      ? ''
+      : eanValor === 'indisponível' || eanValor === 'indisponivel' || eanValor === 'nd' || eanValor === 'n/d'
+        ? null   // salva como null no banco
+        : stepEan.replace(/\D/g, '')
     setStepLinhas(prev => prev.map((l, i) => {
       if (i !== stepIdx) return l
       return { ...l, qtd: pular ? 0 : stepQtd, categoria: stepCat, ean: eanFinal, pular }
@@ -527,36 +532,76 @@ export default function ImportarNFe() {
                 <div className="form-row" style={{ marginTop: 4 }}>
                   <label>
                     Código de barras (EAN)
+                    <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>
                     {itemAtual.ean
                       ? <span style={{ marginLeft: 6, fontSize: 11, color: '#16a34a', fontWeight: 500 }}>✓ lido da NF-e</span>
-                      : <span style={{ marginLeft: 6, fontSize: 11, color: '#d97706' }}>não informado na NF-e — digite se souber</span>}
+                      : <span style={{ marginLeft: 6, fontSize: 11, color: '#d97706' }}>não informado na NF-e</span>}
                   </label>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input
-                      value={stepEan}
-                      onChange={e => {
-                        const v = e.target.value.replace(/\D/g, '')
-                        setStepEan(v)
-                        setStepEanErro('')
-                      }}
-                      placeholder="Somente números"
-                      inputMode="numeric"
+
+                  {/* botões de ação rápida */}
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                    {itemAtual.ean && (
+                      <button type="button"
+                        onClick={() => { setStepEan(itemAtual.ean); setStepEanErro('') }}
+                        style={{
+                          padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+                          border: stepEan === itemAtual.ean ? '1px solid #16a34a' : '1px solid #d1d5db',
+                          background: stepEan === itemAtual.ean ? '#dcfce7' : '#fff',
+                          color: stepEan === itemAtual.ean ? '#16a34a' : '#555',
+                          fontFamily: 'monospace',
+                        }}>
+                        {stepEan === itemAtual.ean ? '✓ ' : ''}{itemAtual.ean}
+                      </button>
+                    )}
+                    <button type="button"
+                      onClick={() => { setStepEan('indisponível'); setStepEanErro('') }}
                       style={{
-                        fontFamily: 'monospace', letterSpacing: 2,
-                        borderColor: stepEanErro ? '#dc2626' : stepEan && stepEan === (itemAtual.ean||'') ? '#16a34a' : undefined
-                      }}
-                    />
-                    {stepEan && stepEan === (itemAtual.ean||'') && (
-                      <span style={{ color: '#16a34a', fontSize: 18, flexShrink: 0 }}>✓</span>
-                    )}
-                    {stepEan && itemAtual.ean && stepEan !== itemAtual.ean && (
-                      <span style={{ color: '#dc2626', fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>⚠ diferente da NF-e</span>
-                    )}
+                        padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+                        border: stepEan === 'indisponível' ? '1px solid #d97706' : '1px solid #d1d5db',
+                        background: stepEan === 'indisponível' ? '#fef3c7' : '#fff',
+                        color: stepEan === 'indisponível' ? '#d97706' : '#555',
+                      }}>
+                      {stepEan === 'indisponível' ? '✓ ' : ''}Indisponível
+                    </button>
                   </div>
-                  {stepEanErro && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{stepEanErro}</div>}
-                  {stepEan && itemAtual.ean && stepEan !== itemAtual.ean && (
+
+                  {/* input manual */}
+                  <input
+                    value={stepEan}
+                    onChange={e => {
+                      // permite digitar números ou a palavra "indisponível"
+                      const v = e.target.value
+                      const vNum = v.replace(/\D/g, '')
+                      // se está digitando letras assume que quer "indisponível"
+                      if (/[a-zA-ZÃÀÁÂãàáâÍÌÎíìîÉÈÊéèêÓÒÔóòôÚÙÛúùû]/.test(v)) {
+                        setStepEan(v)
+                      } else {
+                        setStepEan(vNum)
+                      }
+                      setStepEanErro('')
+                    }}
+                    placeholder={itemAtual.ean ? itemAtual.ean : 'Digite o EAN ou clique em Indisponível'}
+                    inputMode="text"
+                    style={{
+                      fontFamily: stepEan === 'indisponível' ? 'sans-serif' : 'monospace',
+                      letterSpacing: stepEan === 'indisponível' ? 0 : 2,
+                      borderColor: stepEanErro ? '#dc2626'
+                        : stepEan && (stepEan === itemAtual.ean || stepEan === 'indisponível') ? '#16a34a'
+                        : stepEan ? '#d97706'
+                        : undefined,
+                    }}
+                  />
+                  {stepEanErro && (
+                    <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{stepEanErro}</div>
+                  )}
+                  {stepEan && stepEan !== 'indisponível' && itemAtual.ean && stepEan !== itemAtual.ean && (
+                    <div style={{ fontSize: 11, color: '#d97706', marginTop: 4 }}>
+                      ⚠ Código diferente do informado na NF-e ({itemAtual.ean}). O código digitado será salvo.
+                    </div>
+                  )}
+                  {stepEan === 'indisponível' && (
                     <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
-                      NF-e: <span style={{ fontFamily: 'monospace' }}>{itemAtual.ean}</span> · Será salvo o código que você digitou.
+                      O produto será salvo sem código de barras.
                     </div>
                   )}
                 </div>
