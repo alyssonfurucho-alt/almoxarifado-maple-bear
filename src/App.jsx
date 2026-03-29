@@ -16,7 +16,6 @@ import Turmas from './pages/Turmas'
 import Produtos from './pages/Produtos'
 import Categorias from './pages/Categorias'
 import Usuarios from './pages/Usuarios'
-import MercadoLivre from './pages/MercadoLivre'
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
@@ -45,8 +44,6 @@ function AppRoutes() {
         <Route path="produtos"      element={<Produtos />} />
         <Route path="categorias"    element={<Categorias />} />
         <Route path="usuarios"      element={<Usuarios />} />
-        <Route path="ml-integracoes" element={<MercadoLivre />} />
-        <Route path="ml-callback"    element={<MercadoLivre />} />
       </Route>
     </Routes>
   )
