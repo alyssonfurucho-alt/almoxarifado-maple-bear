@@ -206,69 +206,78 @@ export default function Estoque() {
       <div className="card">
         <table>
           <thead>
-            <tr><th>Produto</th><th>Cód. barras</th><th>Cor</th><th>Tamanho</th><th>Categoria</th><th>Qtd</th><th>Custo unit.</th><th>Custo médio</th><th>Último custo</th><th>Inventário</th><th>Situação</th><th>Ações</th></tr>
+            <tr>
+              <th>Produto</th>
+              <th>Cód. barras</th>
+              <th>Cor</th>
+              <th>Tamanho</th>
+              <th>Categoria</th>
+              <th>Qtd</th>
+              <th>Média/mês</th>
+              <th>Última entrada</th>
+              <th>Custo médio</th>
+              <th>Inventário</th>
+              <th>Situação</th>
+              <th>Ações</th>
+            </tr>
           </thead>
           <tbody>
-            {lista.map(i => (
+            {lista.map(i => {
+              const media = mediasMensais[i.id] || 0
+              return (
               <tr key={i.id}>
+                {/* 1. Produto */}
                 <td>
                   <strong style={{ fontWeight:500 }}>{nomeItem(i)}</strong>
                   {i.inventario && <span style={{ marginLeft:6, fontSize:11, background:'#ede9fe', color:'#7c3aed', padding:'1px 7px', borderRadius:4, fontWeight:500 }}>inventário</span>}
                 </td>
+                {/* 2. Cód. barras */}
                 <td>{eanItem(i) ? <span style={{ fontFamily:'monospace', fontSize:11, background:'#f5f5f3', padding:'2px 6px', borderRadius:4 }}>{eanItem(i)}</span> : <span style={{ color:'#ccc' }}>—</span>}</td>
+                {/* 3. Cor */}
                 <td>{corItem(i) || <span style={{ color:'#ccc' }}>—</span>}</td>
+                {/* 4. Tamanho */}
                 <td>{tamItem(i) || <span style={{ color:'#ccc' }}>—</span>}</td>
+                {/* 5. Categoria */}
                 <td>{i.categoria}</td>
+                {/* 6. Qtd */}
                 <td>{i.quantidade} {i.unidade}</td>
+                {/* 7. Média/mês */}
                 <td>
-                  {mediasMensais[i.id]
-                    ? <span style={{
-                        fontSize: 13,
-                        color: mediasMensais[i.id] > 0 && i.quantidade < mediasMensais[i.id] ? '#dc2626' : '#555',
-                        fontWeight: mediasMensais[i.id] > 0 && i.quantidade < mediasMensais[i.id] ? 600 : 400,
-                      }}>
-                        {mediasMensais[i.id]} {i.unidade}
+                  {media > 0
+                    ? <span style={{ fontSize:13, color: i.quantidade < media ? '#d97706' : '#555', fontWeight: i.quantidade < media ? 600 : 400 }}>
+                        {media} {i.unidade}
                       </span>
-                    : <span style={{ color: '#ccc', fontSize: 12 }}>sem histórico</span>}
+                    : <span style={{ color:'#ccc', fontSize:12 }}>—</span>}
                 </td>
+                {/* 8. Última entrada */}
                 <td>
                   {ultimasEntradas[i.id]
-                    ? <span style={{ fontSize: 12 }}>{fmtData(ultimasEntradas[i.id])}</span>
-                    : <span style={{ color: '#ccc', fontSize: 12 }}>—</span>}
+                    ? <span style={{ fontSize:12, color:'#555' }}>{new Date(ultimasEntradas[i.id]).toLocaleDateString('pt-BR')}</span>
+                    : <span style={{ color:'#ccc', fontSize:12 }}>—</span>}
                 </td>
-                <td>
-                  {ultimasEntradas[i.id]
-                    ? <span style={{ fontSize: 12, color: '#555' }}>
-                        {new Date(ultimasEntradas[i.id]).toLocaleDateString('pt-BR')}
-                      </span>
-                    : <span style={{ color: '#ccc', fontSize: 12 }}>—</span>}
-                </td>
-                <td>{fmtR(i.custo_unitario)}</td>
+                {/* 9. Custo médio */}
                 <td>
                   {i.custo_medio > 0
-                    ? <span style={{color:'#16a34a',fontWeight:500}}>{fmtR(i.custo_medio)}</span>
-                    : <span style={{color:'#aaa',fontSize:12}}>—</span>}
+                    ? <span style={{ color:'#16a34a', fontWeight:500 }}>{fmtR(i.custo_medio)}</span>
+                    : <span style={{ color:'#aaa', fontSize:12 }}>—</span>}
                 </td>
-                <td>
-                  {i.ultimo_custo > 0
-                    ? <span style={{color:'#d97706',fontWeight:500}}>{fmtR(i.ultimo_custo)}</span>
-                    : <span style={{color:'#aaa',fontSize:12}}>—</span>}
-                </td>
+                {/* 10. Inventário */}
                 <td>
                   <button onClick={() => toggleInventario(i)} style={{ padding:'3px 10px', fontSize:12, borderRadius:6, cursor:'pointer', border: i.inventario ? '1px solid #7c3aed' : '1px solid #d1d5db', background: i.inventario ? '#ede9fe' : '#fff', color: i.inventario ? '#7c3aed' : '#888', fontWeight: i.inventario ? 500 : 400 }}>
                     {i.inventario ? 'Sim' : 'Não'}
                   </button>
                 </td>
-                <td>{(() => {
-                  const media = mediasMensais[i.id] || 0
-                  if (i.quantidade === 0)      return <span className="badge badge-danger">Sem estoque</span>
-                  if (media > 0 && i.quantidade < media)  return <span className="badge badge-warning">Estoque baixo</span>
-                  if (media > 0 && i.quantidade >= media) return <span className="badge badge-success">OK</span>
-                  return <span className="badge badge-neutral">Sem histórico</span>
-                })()}</td>
+                {/* 11. Situação */}
+                <td>
+                  {i.quantidade === 0                 ? <span className="badge badge-danger">Sem estoque</span>
+                  : media > 0 && i.quantidade < media  ? <span className="badge badge-warning">Estoque baixo</span>
+                  : media > 0 && i.quantidade >= media ? <span className="badge badge-success">OK</span>
+                  :                                      <span className="badge badge-neutral">Sem histórico</span>}
+                </td>
+                {/* 12. Ações */}
                 <td><button className="btn btn-sm" onClick={() => { setModalEntrada(i); setEntQtd(''); setEntCusto(i.custo_unitario?.toString() || '') }}>+ Entrada</button></td>
               </tr>
-            ))}
+            )})}
             {!lista.length && <tr><td colSpan={12} className="empty">{mostrarZerados ? 'Nenhum item encontrado' : 'Nenhum item em estoque'}</td></tr>}
           </tbody>
         </table>
