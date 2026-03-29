@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useSort } from '../lib/useSort'
+import Th from '../components/Th'
 import { supabase } from '../lib/supabase'
 
 export default function Categorias() {
@@ -81,7 +83,7 @@ export default function Categorias() {
 
       <div className="card">
         <table>
-          <thead><tr><th>Nome</th><th>Descrição</th><th>Status</th><th>Ações</th></tr></thead>
+          <thead><tr><Th label="Nome" colKey="nome" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><th>Status</th><th>Ações</th></tr></thead>
           <tbody>
             {ativas.map(cat => (
               <tr key={cat.id}>
