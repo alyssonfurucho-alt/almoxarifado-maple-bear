@@ -14,7 +14,9 @@ import ImportarNFe from './pages/ImportarNFe'
 import Professores from './pages/Professores'
 import Turmas from './pages/Turmas'
 import Produtos from './pages/Produtos'
+import Categorias from './pages/Categorias'
 import Usuarios from './pages/Usuarios'
+import MercadoLivre from './pages/MercadoLivre'
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
@@ -30,18 +32,21 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<Dashboard />} />
-        <Route path="estoque"     element={<Estoque />} />
-        <Route path="saidas"      element={<Saidas />} />
-        <Route path="devolucoes"  element={<Devolucoes />} />
-        <Route path="cobranca"    element={<Cobranca />} />
-        <Route path="relatorios"  element={<Relatorios />} />
-        <Route path="historico"   element={<Historico />} />
-        <Route path="inventario"  element={<Inventario />} />
-        <Route path="importar"    element={<ImportarNFe />} />
-        <Route path="professores" element={<Professores />} />
-        <Route path="turmas"      element={<Turmas />} />
-        <Route path="produtos"    element={<Produtos />} />
-        <Route path="usuarios"    element={<Usuarios />} />
+        <Route path="estoque"       element={<Estoque />} />
+        <Route path="saidas"        element={<Saidas />} />
+        <Route path="devolucoes"    element={<Devolucoes />} />
+        <Route path="cobranca"      element={<Cobranca />} />
+        <Route path="relatorios"    element={<Relatorios />} />
+        <Route path="historico"     element={<Historico />} />
+        <Route path="inventario"    element={<Inventario />} />
+        <Route path="importar"      element={<ImportarNFe />} />
+        <Route path="professores"   element={<Professores />} />
+        <Route path="turmas"        element={<Turmas />} />
+        <Route path="produtos"      element={<Produtos />} />
+        <Route path="categorias"    element={<Categorias />} />
+        <Route path="usuarios"      element={<Usuarios />} />
+        <Route path="ml-integracoes" element={<MercadoLivre />} />
+        <Route path="ml-callback"    element={<MercadoLivre />} />
       </Route>
     </Routes>
   )
