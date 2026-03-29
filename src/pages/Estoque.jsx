@@ -185,7 +185,7 @@ export default function Estoque() {
         <div className="metric-card"><div className="metric-label">Total de itens</div><div className="metric-value blue">{estoque.length}</div></div>
         <div className="metric-card"><div className="metric-label">Em estoque</div><div className="metric-value green">{estoque.filter(i => i.quantidade > 0).length}</div></div>
         <div className="metric-card"><div className="metric-label">Zerados</div><div className="metric-value red">{totalZerados}</div></div>
-        <div className="metric-card"><div className="metric-label">Abaixo da média</div><div className="metric-value red">{estoque.filter(i => i.quantidade > 0 && mediasMensais[i.id] > 0 && i.quantidade < mediasMensais[i.id]).length}</div></div>
+        <div className="metric-card"><div className="metric-label">Abaixo da média</div><div className="metric-value red">{estoque.filter(i => i.quantidade > 0 && (mediasMensais[i.id] || 0) > 0 && i.quantidade < mediasMensais[i.id]).length}</div></div>
         <div className="metric-card"><div className="metric-label">Inventário</div><div className="metric-value">{estoque.filter(i => i.inventario).length}</div></div>
       </div>
 
@@ -261,10 +261,10 @@ export default function Estoque() {
                 </td>
                 <td>{(() => {
                   const media = mediasMensais[i.id] || 0
-                  if (i.quantidade === 0) return <span className="badge badge-danger">Sem estoque</span>
-                  if (media > 0 && i.quantidade < media) return <span className="badge badge-danger">Abaixo da média</span>
-                  if (i.quantidade < 5) return <span className="badge badge-warning">Baixo</span>
-                  return <span className="badge badge-success">OK</span>
+                  if (i.quantidade === 0)      return <span className="badge badge-danger">Sem estoque</span>
+                  if (media > 0 && i.quantidade < media)  return <span className="badge badge-warning">Estoque baixo</span>
+                  if (media > 0 && i.quantidade >= media) return <span className="badge badge-success">OK</span>
+                  return <span className="badge badge-neutral">Sem histórico</span>
                 })()}</td>
                 <td><button className="btn btn-sm" onClick={() => { setModalEntrada(i); setEntQtd(''); setEntCusto(i.custo_unitario?.toString() || '') }}>+ Entrada</button></td>
               </tr>
