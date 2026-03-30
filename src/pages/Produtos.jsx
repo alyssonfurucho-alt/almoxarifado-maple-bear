@@ -20,6 +20,7 @@ export default function Produtos() {
   const [form, setForm] = useState(emptyForm)
   const [erroCodigo, setErroCodigo] = useState('')
 
+  const { sorted: produtosSorted, sortKey, sortDir, toggleSort } = useSort(produtos, 'nome', 'asc')
   useEffect(() => { load(); loadCategorias() }, [])
 
   async function loadCategorias() {
@@ -30,12 +31,8 @@ export default function Produtos() {
   }
 
   async function load() {
-    const [{ data }, { data: cats }] = await Promise.all([
-      supabase.from('produtos').select('*').order('nome'),
-      Promise.resolve({ data: [] }),  // categorias carregadas separado
-    ])
+    const { data } = await supabase.from('produtos').select('*').order('nome')
     setProdutos(data || [])
-    setCategoriasDB(cats || [])
     setLoading(false)
   }
 
