@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useSort } from '../lib/useSort'
+import Th from '../components/Th'
 import { supabase } from '../lib/supabase'
 
 // Remove qualquer caractere que não seja número
@@ -21,14 +23,16 @@ export default function Produtos() {
   useEffect(() => { load(); loadCategorias() }, [])
 
   async function loadCategorias() {
-    const { data } = await supabase.from('categorias').select('id,nome').eq('ativo',true).order('nome')
-    setCategoriasDB(data || [])
+    try {
+      const { data } = await supabase.from('categorias').select('id,nome').eq('ativo',true).order('nome')
+      setCategoriasDB(data || [])
+    } catch { setCategoriasDB([]) }
   }
 
   async function load() {
     const [{ data }, { data: cats }] = await Promise.all([
       supabase.from('produtos').select('*').order('nome'),
-      supabase.from('categorias').select('id,nome').eq('ativo', true).order('nome'),
+      Promise.resolve({ data: [] }),  // categorias carregadas separado
     ])
     setProdutos(data || [])
     setCategorias(cats || [])
@@ -95,7 +99,7 @@ export default function Produtos() {
 
   const f = v => e => setForm({ ...form, [v]: e.target.value })
 
-  const lista = produtos.filter(p =>
+  const lista = produtosSorted.filter(p =>
     p.nome.toLowerCase().includes(busca.toLowerCase()) ||
     (p.codigo_barras || '').includes(busca) ||
     (p.cor || '').toLowerCase().includes(busca.toLowerCase()) ||
@@ -125,9 +129,7 @@ export default function Produtos() {
 
       <div className="card">
         <table>
-          <thead>
-            <tr><th>Código de barras</th><th>Nome</th><th>Categoria</th><th>Cor</th><th>Tamanho</th><th>Status</th><th>Ações</th></tr>
-          </thead>
+          <thead><tr><Th label="Código de barras" colKey="codigo_barras" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Nome" colKey="nome" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Categoria" colKey="categoria" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Cor" colKey="cor" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Tamanho" colKey="tamanho" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><th>Status</th><th>Ações</th></tr></thead>
           <tbody>
             {ativos.map(p => (
               <tr key={p.id}>
