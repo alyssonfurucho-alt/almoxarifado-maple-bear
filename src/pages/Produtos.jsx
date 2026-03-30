@@ -35,7 +35,7 @@ export default function Produtos() {
       Promise.resolve({ data: [] }),  // categorias carregadas separado
     ])
     setProdutos(data || [])
-    setCategorias(cats || [])
+    setCategoriasDB(cats || [])
     setLoading(false)
   }
 
