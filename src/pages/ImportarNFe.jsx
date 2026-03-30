@@ -2,12 +2,14 @@ import { useState, useRef, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { fmtData, fmtR } from '../lib/utils'
 
+// ── helpers XML ──────────────────────────────────────────────
 function tag(node, name) {
   const el = node.getElementsByTagName(name)[0]
   return el ? el.textContent.trim() : ''
 }
 function limparEan(v) {
-  return (v || '').replace(/\D/g, '')
+  if (!v || v === 'SEM GTIN') return ''
+  return v.replace(/\D/g, '')
 }
 function normalizeUnidade(u) {
   const m = { UN:'un', UNID:'un', PC:'un', CX:'cx', PCT:'pct',
@@ -22,27 +24,65 @@ function inferCategoria(nome) {
   return 'Material escolar'
 }
 
-export default function ImportarNFe() {
-  const [tabAtiva, setTabAtiva]         = useState('importar')
-  const [etapa, setEtapa]               = useState('upload')   // upload | previa | confirmando | sucesso
-  const [nfInfo, setNfInfo]             = useState(null)
-  const [linhas, setLinhas]             = useState([])
-  const [selecionados, setSelecionados] = useState({})
-  const [saving, setSaving]             = useState(false)
-  const [erro, setErro]                 = useState('')
-  const [resultado, setResultado]       = useState(null)
-  const [notas, setNotas]               = useState([])
-  const [loadingNotas, setLoadingNotas] = useState(false)
-  const [desfazendoId, setDesfazendoId] = useState(null)
+function parseXmlNFe(xmlStr) {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(xmlStr, 'application/xml')
+  if (doc.querySelector('parsererror')) return null
 
-  // ── estado do step de confirmação item a item ──
-  const [stepIdx, setStepIdx]           = useState(0)    // índice do item atual
-  const [stepLinhas, setStepLinhas]     = useState([])   // cópia das linhas para editar no step
-  const [stepQtd, setStepQtd]           = useState(1)    // qtd editável no popup
-  const [stepCat, setStepCat]           = useState('')   // categoria editável no popup
-  const [stepPular, setStepPular]       = useState(false)// pular este item
-  const [stepEan, setStepEan]           = useState('')   // ean confirmado/digitado pelo usuário
-  const [stepEanErro, setStepEanErro]   = useState('')   // erro de validação do ean
+  const ide  = doc.getElementsByTagName('ide')[0]
+  const emit = doc.getElementsByTagName('emit')[0]
+  const info = {
+    numero:      tag(ide, 'nNF'),
+    serie:       tag(ide, 'serie'),
+    dataEmissao: (tag(ide, 'dhEmi') || tag(ide, 'dEmi')).split('T')[0] || null,
+    emitente:    tag(emit, 'xNome'),
+    cnpj:        tag(emit, 'CNPJ'),
+  }
+
+  const dets = doc.getElementsByTagName('det')
+  const itens = []
+  for (const det of dets) {
+    const prod = det.getElementsByTagName('prod')[0]
+    itens.push({
+      nome:     tag(prod, 'xProd'),
+      qtd:      parseFloat(tag(prod, 'qCom').replace(',', '.')) || 0,
+      custo:    parseFloat(tag(prod, 'vUnCom').replace(',', '.')) || 0,
+      unidade:  normalizeUnidade(tag(prod, 'uCom')),
+      ean:      limparEan(tag(prod, 'cEAN')),
+      codProd:  tag(prod, 'cProd'),
+      categoria: inferCategoria(tag(prod, 'xProd')),
+    })
+  }
+  return { info, itens }
+}
+
+// ── componente principal ──────────────────────────────────────
+export default function ImportarNFe() {
+  const [tabAtiva, setTabAtiva]       = useState('importar')
+  // etapas: upload | selecao | confirmando | sucesso
+  const [etapa, setEtapa]             = useState('upload')
+
+  // lista de notas carregadas dos XMLs
+  const [notas, setNotas]             = useState([])          // [{ fileName, info, itens, selecionados:{idx:bool} }]
+  const [notaAtiva, setNotaAtiva]     = useState(0)           // índice da nota sendo visualizada
+
+  // step de confirmação item a item
+  const [stepNotas, setStepNotas]     = useState([])          // notas com itens filtrados para confirmar
+  const [stepNotaIdx, setStepNotaIdx] = useState(0)
+  const [stepItemIdx, setStepItemIdx] = useState(0)
+  const [stepQtd, setStepQtd]         = useState(0)
+  const [stepEan, setStepEan]         = useState('')
+  const [stepEanErro, setStepEanErro] = useState('')
+  const [stepCat, setStepCat]         = useState('')
+
+  const [saving, setSaving]           = useState(false)
+  const [resultado, setResultado]     = useState(null)
+  const [erro, setErro]               = useState('')
+
+  // histórico
+  const [notasImportadas, setNotasImportadas] = useState([])
+  const [loadingNotas, setLoadingNotas]       = useState(false)
+  const [desfazendoId, setDesfazendoId]       = useState(null)
 
   const fileRef = useRef()
 
@@ -51,287 +91,269 @@ export default function ImportarNFe() {
   async function carregarNotas() {
     setLoadingNotas(true)
     const { data } = await supabase.from('nfe_importacoes').select('*').order('created_at', { ascending: false })
-    setNotas(data || [])
+    setNotasImportadas(data || [])
     setLoadingNotas(false)
   }
 
-  function handleFile(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    if (!file.name.toLowerCase().endsWith('.xml')) { setErro('Selecione um arquivo .xml de NF-e'); return }
+  // ── leitura de múltiplos arquivos ──
+  function handleFiles(e) {
+    const files = Array.from(e.target.files)
+    if (!files.length) return
     setErro('')
-    const reader = new FileReader()
-    reader.onload = ev => lerXML(ev.target.result)
-    reader.readAsText(file, 'UTF-8')
-  }
-
-  async function lerXML(xmlStr) {
-    try {
-      const parser = new DOMParser()
-      const doc = parser.parseFromString(xmlStr, 'application/xml')
-      if (doc.querySelector('parsererror')) { setErro('Arquivo XML inválido.'); return }
-
-      const ide  = doc.getElementsByTagName('ide')[0]
-      const emit = doc.getElementsByTagName('emit')[0]
-      setNfInfo({
-        numero:      tag(ide, 'nNF'),
-        serie:       tag(ide, 'serie'),
-        dataEmissao: (tag(ide, 'dhEmi') || tag(ide, 'dEmi')).split('T')[0] || null,
-        emitente:    tag(emit, 'xNome'),
-        cnpj:        tag(emit, 'CNPJ'),
-      })
-
-      // suporta tanto <NFe> direto quanto encapsulado em <nfeProc>
-      const dets = doc.getElementsByTagName('det')
-      if (!dets.length) { setErro('Nenhum produto encontrado na NF-e. Verifique se o arquivo é uma NF-e válida.'); return }
-
-      const { data: produtosDB } = await supabase.from('produtos').select('id, nome, codigo_barras, cor, tamanho')
-      const { data: estoqueDB }  = await supabase.from('estoque').select('id, nome, quantidade, custo_unitario, custo_medio, ultimo_custo, total_entradas, produto_id, codigo_barras')
-
-      const novasLinhas = []
-      for (const det of dets) {
-        const prod    = det.getElementsByTagName('prod')[0]
-        const nome    = tag(prod, 'xProd')
-        const qtd     = parseFloat(tag(prod, 'qCom').replace(',', '.')) || 0
-        const custo   = parseFloat(tag(prod, 'vUnCom').replace(',', '.')) || 0
-        const unidade = normalizeUnidade(tag(prod, 'uCom'))
-        const ean     = limparEan(tag(prod, 'cEAN'))
-
-        const codProd = tag(prod, 'cProd') || ''
-
-        // busca produto pelo EAN; se não tiver EAN, tenta pelo nome
-        const produto = ean
-          ? (produtosDB||[]).find(p => p.codigo_barras === ean)
-          : (produtosDB||[]).find(p => p.nome?.toLowerCase().trim() === nome.toLowerCase().trim())
-
-        let itemEstoque = null
-        if (produto) {
-          itemEstoque = (estoqueDB||[]).find(i => i.produto_id === produto.id)
-          if (!itemEstoque) {
-            itemEstoque = (estoqueDB||[]).find(i =>
-              (i.nome||'').toLowerCase().trim() === (produto.nome||'').toLowerCase().trim()
-            )
-          }
+    const novasNotas = []
+    let pending = files.length
+    files.forEach(file => {
+      if (!file.name.toLowerCase().endsWith('.xml')) { pending--; return }
+      const reader = new FileReader()
+      reader.onload = ev => {
+        const parsed = parseXmlNFe(ev.target.result)
+        if (parsed) {
+          const selecionados = {}
+          parsed.itens.forEach((_, i) => selecionados[i] = true)
+          novasNotas.push({ fileName: file.name, info: parsed.info, itens: parsed.itens, selecionados })
         }
-        if (!itemEstoque && ean) {
-          itemEstoque = (estoqueDB||[]).find(i => i.codigo_barras === ean)
+        pending--
+        if (pending === 0) {
+          if (!novasNotas.length) { setErro('Nenhum arquivo XML válido encontrado.'); return }
+          setNotas(prev => {
+            const combinado = [...prev, ...novasNotas]
+            return combinado
+          })
+          setNotaAtiva(notas.length)  // abre na primeira nova
+          setEtapa('selecao')
         }
-        if (!itemEstoque) {
-          itemEstoque = (estoqueDB||[]).find(i =>
-            (i.nome||'').toLowerCase().trim() === nome.toLowerCase().trim()
-          )
-        }
-
-        const infAdProd = tag(det.getElementsByTagName ? det : det, 'infAdProd') || ''
-
-        novasLinhas.push({
-          nome, qtd, custo, unidade, ean,
-          codProd,
-          infAdProd,
-          categoria:   inferCategoria(nome),
-          produto,
-          itemEstoque,
-          pular: false,
-        })
       }
-
-      setLinhas(novasLinhas)
-      const sel = {}; novasLinhas.forEach((_, i) => sel[i] = true)
-      setSelecionados(sel)
-      setEtapa('previa')
-    } catch (e) {
-      setErro('Erro ao processar XML: ' + e.message)
-    }
+      reader.readAsText(file, 'UTF-8')
+    })
   }
 
-  // ── inicia o step de confirmação item a item ──
+  // ── toggles de seleção ──
+  function toggleItem(notaIdx, itemIdx) {
+    setNotas(prev => prev.map((n, ni) => ni !== notaIdx ? n : {
+      ...n,
+      selecionados: { ...n.selecionados, [itemIdx]: !n.selecionados[itemIdx] }
+    }))
+  }
+
+  function toggleTodosNota(notaIdx, valor) {
+    setNotas(prev => prev.map((n, ni) => {
+      if (ni !== notaIdx) return n
+      const selecionados = {}
+      n.itens.forEach((_, i) => selecionados[i] = valor)
+      return { ...n, selecionados }
+    }))
+  }
+
+  function removerNota(notaIdx) {
+    setNotas(prev => {
+      const novo = prev.filter((_, i) => i !== notaIdx)
+      if (novo.length === 0) { setEtapa('upload'); return [] }
+      setNotaAtiva(Math.min(notaAtiva, novo.length - 1))
+      return novo
+    })
+  }
+
+  // ── inicia confirmação ──
   function iniciarConfirmacao() {
-    const lista = linhas.filter((_, i) => selecionados[i])
-    if (!lista.length) { alert('Selecione pelo menos um item'); return }
-    // cópia das linhas selecionadas para o step
-    const copia = linhas
-      .map((l, i) => ({ ...l, idxOriginal: i, selecionado: !!selecionados[i] }))
-      .filter(l => l.selecionado)
-    setStepLinhas(copia)
-    setStepIdx(0)
-    setStepQtd(copia[0].qtd)
-    setStepCat(copia[0].categoria)
+    const notasComItens = notas
+      .map(n => ({
+        ...n,
+        itensSelecionados: n.itens
+          .map((it, i) => ({ ...it, idxOriginal: i }))
+          .filter((_, i) => n.selecionados[i])
+          .map(it => ({ ...it, eanConfirmado: '', pular: false }))
+      }))
+      .filter(n => n.itensSelecionados.length > 0)
+
+    if (!notasComItens.length) { alert('Selecione pelo menos um item para importar.'); return }
+
+    setStepNotas(notasComItens)
+    setStepNotaIdx(0)
+    setStepItemIdx(0)
+    const primeiro = notasComItens[0].itensSelecionados[0]
+    setStepQtd(primeiro.qtd)
     setStepEan('')
     setStepEanErro('')
-    setStepPular(false)
+    setStepCat(primeiro.categoria)
     setEtapa('confirmando')
   }
 
-  // ── avança para próximo item no step ──
+  // ── navegação no step ──
   function stepProximo(pular = false) {
-    const eanDigitado = stepEan.trim()
-    const eanNota     = stepLinhas[stepIdx]?.ean || ''
-    const semEanNota  = !eanNota  // nota não tem código
+    const eanNota = stepNotas[stepNotaIdx].itensSelecionados[stepItemIdx].ean
+    const semEan  = !eanNota
 
     if (!pular) {
-      // campo vazio — bloqueia sempre
-      if (!eanDigitado) {
-        setStepEanErro(semEanNota
-          ? 'Digite "indisponível" para avançar'
-          : 'Digite o código de barras da nota fiscal para avançar')
+      const v = stepEan.trim()
+      if (!v) {
+        setStepEanErro(semEan ? 'Digite "indisponível" para avançar' : 'Digite o código de barras da nota para avançar')
         return
       }
-
-      // nota TEM código — usuário precisa digitar exatamente o mesmo
-      if (!semEanNota) {
-        const eanDigitadoLimpo = eanDigitado.replace(/\D/g, '')
-        if (eanDigitadoLimpo !== eanNota) {
-          setStepEanErro(`Código incorreto. Digite exatamente: ${eanNota}`)
+      if (!semEan && v.replace(/\D/g,'') !== eanNota) {
+        setStepEanErro(`Código incorreto. Digite exatamente: ${eanNota}`)
+        return
+      }
+      if (semEan) {
+        const vl = v.toLowerCase()
+        if (vl !== 'indisponível' && vl !== 'indisponivel') {
+          setStepEanErro('A nota não possui EAN. Digite "indisponível" para avançar.')
           return
         }
       }
-
-      // nota NÃO tem código — só aceita "indisponível"
-      if (semEanNota) {
-        const v = eanDigitado.toLowerCase()
-        if (v !== 'indisponível' && v !== 'indisponivel') {
-          setStepEanErro('A nota não possui código de barras. Digite "indisponível" para avançar.')
-          return
-        }
-      }
-
-      setStepEanErro('')
     }
 
-    // salva o estado atual do item
-    const eanValor = stepEan.trim().toLowerCase()
-    const eanFinal = pular
-      ? stepLinhas[stepIdx]?.ean || null  // pular mantém original
-      : (eanValor === 'indisponível' || eanValor === 'indisponivel')
-        ? null
-        : stepEan.replace(/\D/g, '')
-    setStepLinhas(prev => prev.map((l, i) => {
-      if (i !== stepIdx) return l
-      return { ...l, qtd: pular ? 0 : stepQtd, categoria: stepCat, ean: eanFinal, pular }
-    }))
+    const eanFinal = pular ? null
+      : (() => { const vl = stepEan.trim().toLowerCase(); return (vl === 'indisponível' || vl === 'indisponivel') ? null : stepEan.replace(/\D/g,'') })()
 
-    const proximo = stepIdx + 1
-    if (proximo >= stepLinhas.length) {
-      const linhasFinais = stepLinhas.map((l, i) => {
-        if (i === stepIdx) return { ...l, qtd: pular ? 0 : stepQtd, categoria: stepCat, ean: eanFinal, pular }
-        return l
-      }).filter(l => !l.pular)
-      commitarNoEstoque(linhasFinais)
-    } else {
-      setStepIdx(proximo)
-      setStepQtd(stepLinhas[proximo].qtd)
-      setStepCat(stepLinhas[proximo].categoria)
+    // salva no item atual
+    const novasNotas = stepNotas.map((n, ni) => {
+      if (ni !== stepNotaIdx) return n
+      return {
+        ...n,
+        itensSelecionados: n.itensSelecionados.map((it, ii) => {
+          if (ii !== stepItemIdx) return it
+          return { ...it, qtd: pular ? 0 : stepQtd, eanConfirmado: eanFinal, categoria: stepCat, pular }
+        })
+      }
+    })
+    setStepNotas(novasNotas)
+
+    // avança
+    const nota = novasNotas[stepNotaIdx]
+    const proxItem = stepItemIdx + 1
+    if (proxItem < nota.itensSelecionados.length) {
+      setStepItemIdx(proxItem)
+      setStepQtd(nota.itensSelecionados[proxItem].qtd)
       setStepEan('')
       setStepEanErro('')
-      setStepPular(false)
+      setStepCat(nota.itensSelecionados[proxItem].categoria)
+    } else {
+      const proxNota = stepNotaIdx + 1
+      if (proxNota < novasNotas.length) {
+        setStepNotaIdx(proxNota)
+        setStepItemIdx(0)
+        const prox = novasNotas[proxNota].itensSelecionados[0]
+        setStepQtd(prox.qtd)
+        setStepEan('')
+        setStepEanErro('')
+        setStepCat(prox.categoria)
+      } else {
+        // todos confirmados
+        commitarEstoque(novasNotas)
+      }
     }
   }
 
   function stepAnterior() {
-    if (stepIdx === 0) { setEtapa('previa'); return }
-    const ant = stepIdx - 1
-    setStepIdx(ant)
-    setStepQtd(stepLinhas[ant].qtd)
-    setStepCat(stepLinhas[ant].categoria)
-    setStepEan('')
-    setStepEanErro('')
-    setStepPular(false)
+    if (stepItemIdx > 0) {
+      const prev = stepItemIdx - 1
+      setStepItemIdx(prev)
+      const it = stepNotas[stepNotaIdx].itensSelecionados[prev]
+      setStepQtd(it.qtd); setStepEan(''); setStepEanErro(''); setStepCat(it.categoria)
+    } else if (stepNotaIdx > 0) {
+      const prevNota = stepNotaIdx - 1
+      setStepNotaIdx(prevNota)
+      const itens = stepNotas[prevNota].itensSelecionados
+      const prev  = itens.length - 1
+      setStepItemIdx(prev)
+      const it = itens[prev]
+      setStepQtd(it.qtd); setStepEan(''); setStepEanErro(''); setStepCat(it.categoria)
+    } else {
+      setEtapa('selecao')
+    }
   }
 
-  // ── commit final no banco ──
-  async function commitarNoEstoque(linhasConfirmadas) {
+  // ── commit no banco ──
+  async function commitarEstoque(notasFinais) {
     setSaving(true)
-    let qtdCadastrados = 0, qtdAtualizados = 0, qtdErros = 0
-    const log = []
+    const { data: produtosDB } = await supabase.from('produtos').select('id,nome,codigo_barras')
+    const { data: estoqueDB }  = await supabase.from('estoque').select('id,nome,quantidade,custo_unitario,custo_medio,produto_id,codigo_barras')
 
-    for (const linha of linhasConfirmadas) {
-      try {
-        const nomeItem = (linha.nome || '').trim()
-        const ean      = linha.ean || ''
+    let totalCadastrados = 0, totalAtualizados = 0, totalErros = 0
 
-        // A: garante produto
-        let produtoId = linha.produto?.id || null
-        if (!produtoId && ean) {
-          const { data: novoProd, error: errP } = await supabase
-            .from('produtos')
-            .insert({ codigo_barras: ean, nome: nomeItem, ativo: true, categoria: linha.categoria })
-            .select('id').single()
-          if (errP) throw new Error('Produto: ' + errP.message)
-          produtoId = novoProd.id
-        }
+    for (const nota of notasFinais) {
+      const log = []
+      let cadastrados = 0, atualizados = 0
 
-        // B: busca estoque fresco
-        let itemEstoqueAtual = linha.itemEstoque
-        if (!itemEstoqueAtual && produtoId) {
-          const { data: f } = await supabase.from('estoque').select('id,quantidade,produto_id').eq('produto_id', produtoId).maybeSingle()
-          if (f) itemEstoqueAtual = f
-        }
-        if (!itemEstoqueAtual && ean) {
-          const { data: f } = await supabase.from('estoque').select('id,quantidade,produto_id').eq('codigo_barras', ean).maybeSingle()
-          if (f) itemEstoqueAtual = f
-        }
+      for (const item of nota.itensSelecionados.filter(it => !it.pular && it.qtd > 0)) {
+        try {
+          const ean = item.eanConfirmado || ''
+          const nomeItem = item.nome.trim()
 
-        if (itemEstoqueAtual) {
-          const qtdAtual   = itemEstoqueAtual.quantidade || 0
-          const novaQtd    = qtdAtual + linha.qtd
-          const custoMedio = qtdAtual > 0
-            ? ((qtdAtual * (itemEstoqueAtual.custo_medio || itemEstoqueAtual.custo_unitario || 0)) + (linha.qtd * linha.custo)) / novaQtd
-            : linha.custo
-          const payload = {
-            quantidade:    novaQtd,
-            custo_unitario: linha.custo,
-            custo_medio:   parseFloat(custoMedio.toFixed(2)),
-            ultimo_custo:  linha.custo,
-            total_entradas: (itemEstoqueAtual.total_entradas || 0) + linha.qtd,
+          // A: produto
+          let produtoId = ean ? produtosDB?.find(p => p.codigo_barras === ean)?.id : null
+          if (!produtoId && ean) {
+            const { data: np, error: ep } = await supabase.from('produtos')
+              .insert({ codigo_barras: ean, nome: nomeItem, ativo: true, categoria: item.categoria })
+              .select('id').single()
+            if (ep) throw new Error(ep.message)
+            produtoId = np.id
+            produtosDB?.push({ id: np.id, nome: nomeItem, codigo_barras: ean })
           }
-          if (produtoId && !itemEstoqueAtual.produto_id) payload.produto_id = produtoId
-          const { error: errU } = await supabase.from('estoque').update(payload).eq('id', itemEstoqueAtual.id)
-          if (errU) throw new Error('Update: ' + errU.message)
-          log.push({ id: itemEstoqueAtual.id, nome: nomeItem, qtd: linha.qtd, tipo: 'entrada' })
-          qtdAtualizados++
-        } else {
-          const { data: novo, error: errI } = await supabase.from('estoque').insert({
-            produto_id:     produtoId,
-            nome:           nomeItem,
-            categoria:      linha.categoria,
-            custo_unitario: linha.custo,
-            custo_medio:    linha.custo,
-            ultimo_custo:   linha.custo,
-            total_entradas: linha.qtd,
-            quantidade:     linha.qtd,
-            unidade:        linha.unidade,
-            codigo_barras:  ean || null,
-          }).select('id').single()
-          if (errI) throw new Error('Insert: ' + errI.message)
-          log.push({ id: novo.id, nome: nomeItem, qtd: linha.qtd, tipo: 'cadastro' })
-          qtdCadastrados++
+
+          // B: estoque
+          let itemEst = null
+          if (produtoId) itemEst = estoqueDB?.find(i => i.produto_id === produtoId)
+          if (!itemEst && ean) itemEst = estoqueDB?.find(i => i.codigo_barras === ean)
+          if (!itemEst) itemEst = estoqueDB?.find(i => (i.nome||'').toLowerCase().trim() === nomeItem.toLowerCase())
+
+          if (!itemEst && produtoId) {
+            const { data: f } = await supabase.from('estoque').select('id,quantidade,custo_unitario,custo_medio,produto_id').eq('produto_id', produtoId).maybeSingle()
+            if (f) itemEst = f
+          }
+
+          if (itemEst) {
+            const novaQtd = (itemEst.quantidade || 0) + item.qtd
+            const custoAnt = itemEst.custo_medio || itemEst.custo_unitario || 0
+            const qtdAnt = itemEst.quantidade || 0
+            const custoMedio = qtdAnt > 0 ? ((qtdAnt * custoAnt) + (item.qtd * item.custo)) / novaQtd : item.custo
+            const payload = { quantidade: novaQtd, custo_unitario: item.custo, custo_medio: parseFloat(custoMedio.toFixed(2)) }
+            if (produtoId && !itemEst.produto_id) payload.produto_id = produtoId
+            const { error: eu } = await supabase.from('estoque').update(payload).eq('id', itemEst.id)
+            if (eu) throw new Error(eu.message)
+            log.push({ id: itemEst.id, nome: nomeItem, qtd: item.qtd, tipo: 'entrada' })
+            atualizados++
+            itemEst.quantidade = novaQtd
+          } else {
+            const { data: ne, error: ei } = await supabase.from('estoque').insert({
+              produto_id: produtoId, nome: nomeItem, categoria: item.categoria,
+              custo_unitario: item.custo, custo_medio: item.custo,
+              quantidade: item.qtd, unidade: item.unidade, codigo_barras: ean || null,
+            }).select('id').single()
+            if (ei) throw new Error(ei.message)
+            log.push({ id: ne.id, nome: nomeItem, qtd: item.qtd, tipo: 'cadastro' })
+            estoqueDB?.push({ id: ne.id, nome: nomeItem, quantidade: item.qtd, produto_id: produtoId, codigo_barras: ean })
+            cadastrados++
+          }
+        } catch (e) {
+          console.error('[NF-e]', item.nome, e.message)
+          totalErros++
         }
-      } catch (e) {
-        console.error('[NF-e] erro:', linha.nome, e.message)
-        qtdErros++
       }
+
+      await supabase.from('nfe_importacoes').insert({
+        numero: nota.info.numero, serie: nota.info.serie,
+        emitente: nota.info.emitente, cnpj: nota.info.cnpj,
+        data_emissao: nota.info.dataEmissao || null,
+        itens_json: JSON.stringify(log),
+        itens_cadastrados: cadastrados,
+        itens_atualizados: atualizados,
+      })
+      totalCadastrados += cadastrados
+      totalAtualizados += atualizados
     }
 
-    await supabase.from('nfe_importacoes').insert({
-      numero: nfInfo?.numero, serie: nfInfo?.serie,
-      emitente: nfInfo?.emitente, cnpj: nfInfo?.cnpj,
-      data_emissao: nfInfo?.dataEmissao || null,
-      itens_json: JSON.stringify(log),
-      itens_cadastrados: qtdCadastrados,
-      itens_atualizados: qtdAtualizados,
-    })
-
     setSaving(false)
-    setResultado({ cadastrados: qtdCadastrados, atualizados: qtdAtualizados, erros: qtdErros, log })
+    setResultado({ cadastrados: totalCadastrados, atualizados: totalAtualizados, erros: totalErros, notas: notasFinais })
     setEtapa('sucesso')
   }
 
   async function desfazerNota(nota) {
-    if (!window.confirm(`Desfazer a importação da NF ${nota.numero}?\n\nAs quantidades adicionadas serão subtraídas do estoque.`)) return
+    if (!window.confirm(`Desfazer a importação da NF ${nota.numero}?`)) return
     setDesfazendoId(nota.id)
     try {
-      const estoqueLog = JSON.parse(nota.itens_json || '[]')
-      for (const it of estoqueLog) {
+      const log = JSON.parse(nota.itens_json || '[]')
+      for (const it of log) {
         const { data: item } = await supabase.from('estoque').select('quantidade').eq('id', it.id).single()
         if (!item) continue
         await supabase.from('estoque').update({ quantidade: Math.max(0, item.quantidade - it.qtd) }).eq('id', it.id)
@@ -347,18 +369,20 @@ export default function ImportarNFe() {
   }
 
   function reiniciar() {
-    setEtapa('upload'); setLinhas([]); setNfInfo(null)
-    setSelecionados({}); setErro(''); setResultado(null)
-    setStepIdx(0); setStepLinhas([])
+    setEtapa('upload'); setNotas([]); setResultado(null); setErro('')
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  const totalSel = Object.values(selecionados).filter(Boolean).length
+  // ── totais da seleção ──
+  const totalItens    = notas.reduce((a, n) => a + n.itens.length, 0)
+  const totalSelecionados = notas.reduce((a, n) => a + Object.values(n.selecionados).filter(Boolean).length, 0)
 
   // ── item atual no step ──
-  const itemAtual = stepLinhas[stepIdx]
-  const jaTemEstoque = !!itemAtual?.itemEstoque
-  const qtdAtual = itemAtual?.itemEstoque?.quantidade ?? 0
+  const stepNota   = stepNotas[stepNotaIdx]
+  const stepItem   = stepNota?.itensSelecionados[stepItemIdx]
+  const totalSteps = stepNotas.reduce((a, n) => a + n.itensSelecionados.length, 0)
+  const stepAtual  = stepNotas.slice(0, stepNotaIdx).reduce((a, n) => a + n.itensSelecionados.length, 0) + stepItemIdx + 1
+  const jaTemEst   = false  // será checado no commit
 
   return (
     <div>
@@ -368,346 +392,303 @@ export default function ImportarNFe() {
         <div className={`tab${tabAtiva==='historico'?' active':''}`} onClick={() => setTabAtiva('historico')}>Notas importadas</div>
       </div>
 
-      {tabAtiva === 'importar' && (
-        <>
-          {/* ── UPLOAD ── */}
-          {etapa === 'upload' && (
-            <div style={{ maxWidth:560 }}>
-              <div className="alert alert-info" style={{ marginBottom:20 }}>
-                Importe uma NF-e em XML. Você revisará cada item antes de confirmar a entrada no estoque.
-              </div>
-              {erro && <div className="alert alert-danger">{erro}</div>}
-              <div className="card">
-                <div style={{ border:'2px dashed #d1d5db', borderRadius:10, padding:'40px 24px', textAlign:'center', cursor:'pointer' }}
-                  onClick={() => fileRef.current?.click()}
-                  onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor='#1d4ed8' }}
-                  onDragLeave={e => { e.currentTarget.style.borderColor='#d1d5db' }}
-                  onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor='#d1d5db'; const f=e.dataTransfer.files[0]; if(f) handleFile({target:{files:[f]}}) }}>
-                  <div style={{ fontSize:36, marginBottom:12 }}>📄</div>
-                  <div style={{ fontWeight:500, marginBottom:6 }}>Clique ou arraste o arquivo XML aqui</div>
-                  <div style={{ fontSize:12, color:'#888' }}>Apenas arquivos .xml de NF-e</div>
-                  <input ref={fileRef} type="file" accept=".xml" style={{ display:'none' }} onChange={handleFile} />
-                </div>
+      {tabAtiva === 'importar' && (<>
+
+        {/* ══ UPLOAD ══ */}
+        {etapa === 'upload' && (
+          <div style={{ maxWidth: 580 }}>
+            <div className="alert alert-info" style={{ marginBottom: 16 }}>
+              Importe um ou mais arquivos XML de NF-e. Você poderá revisar cada item antes de confirmar a entrada no estoque.
+            </div>
+            {erro && <div className="alert alert-danger">{erro}</div>}
+            <div className="card">
+              <div style={{ border:'2px dashed #d1d5db', borderRadius:10, padding:'40px 24px', textAlign:'center', cursor:'pointer' }}
+                onClick={() => fileRef.current?.click()}
+                onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor='#1d4ed8' }}
+                onDragLeave={e => { e.currentTarget.style.borderColor='#d1d5db' }}
+                onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor='#d1d5db'; handleFiles({ target: { files: e.dataTransfer.files } }) }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
+                <div style={{ fontWeight: 500, marginBottom: 6 }}>Clique ou arraste os arquivos XML aqui</div>
+                <div style={{ fontSize: 12, color: '#888' }}>Suporta múltiplos arquivos .xml de NF-e ao mesmo tempo</div>
+                <input ref={fileRef} type="file" accept=".xml,.XML" multiple style={{ display:'none' }} onChange={handleFiles} />
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* ── PRÉVIA GERAL ── */}
-          {etapa === 'previa' && (
-            <>
-              {nfInfo && (
-                <div className="card" style={{ display:'flex', gap:24, flexWrap:'wrap', marginBottom:16 }}>
-                  <div><div style={{ fontSize:11, color:'#888' }}>Emitente</div><div style={{ fontWeight:500 }}>{nfInfo.emitente}</div></div>
-                  <div><div style={{ fontSize:11, color:'#888' }}>CNPJ</div><div style={{ fontWeight:500 }}>{nfInfo.cnpj}</div></div>
-                  <div><div style={{ fontSize:11, color:'#888' }}>NF / Série</div><div style={{ fontWeight:500 }}>{nfInfo.numero} / {nfInfo.serie}</div></div>
-                  <div><div style={{ fontSize:11, color:'#888' }}>Emissão</div><div style={{ fontWeight:500 }}>{nfInfo.dataEmissao ? new Date(nfInfo.dataEmissao+'T12:00:00').toLocaleDateString('pt-BR') : '—'}</div></div>
-                </div>
-              )}
-              <div className="cards-grid" style={{ marginBottom:16 }}>
-                <div className="metric-card"><div className="metric-label">Itens na nota</div><div className="metric-value">{linhas.length}</div></div>
-                <div className="metric-card"><div className="metric-label">Selecionados</div><div className="metric-value blue">{totalSel}</div></div>
-                <div className="metric-card"><div className="metric-label">Novos</div><div className="metric-value green">{linhas.filter((l,i)=>selecionados[i]&&!l.itemEstoque).length}</div></div>
-                <div className="metric-card"><div className="metric-label">Entradas</div><div className="metric-value yellow">{linhas.filter((l,i)=>selecionados[i]&&l.itemEstoque).length}</div></div>
-              </div>
-              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:12, gap:8, flexWrap:'wrap' }}>
-                <div style={{ display:'flex', gap:8 }}>
-                  <button className="btn btn-sm" onClick={() => { const s={}; linhas.forEach((_,i)=>s[i]=true); setSelecionados(s) }}>Selecionar todos</button>
-                  <button className="btn btn-sm" onClick={() => setSelecionados({})}>Desmarcar todos</button>
-                </div>
-                <div style={{ display:'flex', gap:8 }}>
-                  <button className="btn btn-sm" onClick={reiniciar}>← Voltar</button>
-                  <button className="btn btn-primary btn-sm" onClick={iniciarConfirmacao} disabled={!totalSel}>
-                    Revisar e confirmar ({totalSel}) →
+        {/* ══ SELEÇÃO ══ */}
+        {etapa === 'selecao' && (
+          <>
+            {/* resumo geral */}
+            <div className="cards-grid" style={{ marginBottom: 16 }}>
+              <div className="metric-card"><div className="metric-label">Notas carregadas</div><div className="metric-value blue">{notas.length}</div></div>
+              <div className="metric-card"><div className="metric-label">Total de itens</div><div className="metric-value">{totalItens}</div></div>
+              <div className="metric-card"><div className="metric-label">Itens selecionados</div><div className="metric-value green">{totalSelecionados}</div></div>
+            </div>
+
+            {/* tabs das notas */}
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:12, alignItems:'center' }}>
+              {notas.map((n, ni) => (
+                <div key={ni} style={{ display:'flex', alignItems:'center', gap:0 }}>
+                  <button onClick={() => setNotaAtiva(ni)} style={{
+                    padding:'6px 14px', fontSize:13, borderRadius:'8px 0 0 8px', cursor:'pointer',
+                    border: notaAtiva===ni ? '1.5px solid #1d4ed8' : '1px solid #d1d5db',
+                    background: notaAtiva===ni ? '#eff6ff' : '#fff',
+                    color: notaAtiva===ni ? '#1d4ed8' : '#555', fontWeight: notaAtiva===ni ? 600 : 400,
+                  }}>
+                    NF {n.info.numero || n.fileName}
+                    <span style={{ marginLeft:6, fontSize:11, background: notaAtiva===ni?'#bfdbfe':'#f5f5f3', padding:'1px 5px', borderRadius:4 }}>
+                      {Object.values(n.selecionados).filter(Boolean).length}/{n.itens.length}
+                    </span>
                   </button>
+                  <button onClick={() => removerNota(ni)} style={{
+                    padding:'6px 8px', fontSize:12, borderRadius:'0 8px 8px 0', cursor:'pointer',
+                    border: notaAtiva===ni ? '1.5px solid #1d4ed8' : '1px solid #d1d5db',
+                    borderLeft:'none', background:'#fff', color:'#dc2626',
+                  }}>×</button>
                 </div>
-              </div>
-              <div className="card">
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={{ width:36 }}>
-                        <input type="checkbox" checked={totalSel===linhas.length}
-                          onChange={e => { const s={}; linhas.forEach((_,i)=>s[i]=e.target.checked); setSelecionados(s) }}
-                          style={{ accentColor:'#1d4ed8' }} />
-                      </th>
-                      <th>Produto (NF-e)</th><th>EAN</th><th>Qtd NF</th><th>Custo unit.</th><th>Unid.</th><th>Situação</th><th>Estoque atual</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {linhas.map((linha, i) => {
-                      const jaExiste = !!linha.itemEstoque
-                      let situacao, cls
-                      if (linha.produto && jaExiste) { situacao='Entrada — produto existente'; cls='badge-warning' }
-                      else if (linha.produto && !jaExiste) { situacao='Novo estoque — produto existente'; cls='badge-info' }
-                      else if (!linha.produto && linha.ean) { situacao='Novo produto + estoque'; cls='badge-success' }
-                      else { situacao='Novo estoque (sem EAN)'; cls='badge-neutral' }
-                      return (
-                        <tr key={i} style={{ opacity:selecionados[i]?1:0.4 }}>
-                          <td><input type="checkbox" checked={!!selecionados[i]} onChange={() => setSelecionados(s=>({...s,[i]:!s[i]}))} style={{ accentColor:'#1d4ed8' }} /></td>
-                          <td>
-                            <strong style={{ fontWeight:500 }}>{linha.nome}</strong>
-                            {linha.produto?.cor    && <span style={{ marginLeft:6, fontSize:11, color:'#888' }}>{linha.produto.cor}</span>}
-                            {linha.produto?.tamanho && <span style={{ marginLeft:4, fontSize:11, color:'#888' }}>{linha.produto.tamanho}</span>}
-                          </td>
-                          <td>
-                            {linha.ean
-                              ? <span style={{ fontFamily:'monospace', fontSize:11, background:'#f5f5f3', padding:'2px 6px', borderRadius:4 }}>{linha.ean}</span>
-                              : <span style={{ fontSize:11, background:'#fef3c7', color:'#d97706', padding:'2px 6px', borderRadius:4 }}>sem EAN</span>}
-                          </td>
-                          <td style={{ fontWeight:500 }}>{linha.qtd} {linha.unidade}</td>
-                          <td>{fmtR(linha.custo)}</td>
-                          <td>{linha.unidade}</td>
-                          <td><span className={`badge ${cls}`}>{situacao}</span></td>
-                          <td style={{ fontSize:12 }}>{jaExiste ? linha.itemEstoque.quantidade : <span style={{ color:'#aaa' }}>—</span>}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+              ))}
+              <button onClick={() => fileRef.current?.click()} className="btn btn-sm" style={{ borderStyle:'dashed' }}>
+                + Adicionar XML
+              </button>
+              <input ref={fileRef} type="file" accept=".xml,.XML" multiple style={{ display:'none' }} onChange={handleFiles} />
+            </div>
 
-          {/* ── STEP DE CONFIRMAÇÃO ITEM A ITEM ── */}
-          {etapa === 'confirmando' && itemAtual && (
-            <div style={{ maxWidth:560 }}>
-              {/* barra de progresso */}
-              <div style={{ marginBottom:20 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#888', marginBottom:6 }}>
-                  <span>Revisando item {stepIdx+1} de {stepLinhas.length}</span>
-                  <span>{Math.round(((stepIdx)/stepLinhas.length)*100)}% concluído</span>
+            {/* tabela de itens da nota ativa */}
+            {notas[notaAtiva] && (() => {
+              const nota = notas[notaAtiva]
+              const selCount = Object.values(nota.selecionados).filter(Boolean).length
+              return (
+                <>
+                  {/* cabeçalho da nota */}
+                  <div className="card" style={{ display:'flex', gap:24, flexWrap:'wrap', marginBottom:12, padding:'12px 16px' }}>
+                    <div><div style={{ fontSize:11, color:'#888' }}>Emitente</div><div style={{ fontWeight:500 }}>{nota.info.emitente}</div></div>
+                    <div><div style={{ fontSize:11, color:'#888' }}>CNPJ</div><div style={{ fontWeight:500 }}>{nota.info.cnpj}</div></div>
+                    <div><div style={{ fontSize:11, color:'#888' }}>NF / Série</div><div style={{ fontWeight:500 }}>{nota.info.numero} / {nota.info.serie}</div></div>
+                    <div><div style={{ fontSize:11, color:'#888' }}>Emissão</div><div style={{ fontWeight:500 }}>{nota.info.dataEmissao ? new Date(nota.info.dataEmissao+'T12:00:00').toLocaleDateString('pt-BR') : '—'}</div></div>
+                    <div><div style={{ fontSize:11, color:'#888' }}>Arquivo</div><div style={{ fontSize:12, color:'#888' }}>{nota.fileName}</div></div>
+                  </div>
+
+                  {/* ações da nota */}
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8, gap:8, flexWrap:'wrap' }}>
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button className="btn btn-sm" onClick={() => toggleTodosNota(notaAtiva, true)}>Selecionar todos</button>
+                      <button className="btn btn-sm" onClick={() => toggleTodosNota(notaAtiva, false)}>Desmarcar todos</button>
+                    </div>
+                    <span style={{ fontSize:13, color:'#888', alignSelf:'center' }}>{selCount} de {nota.itens.length} selecionados</span>
+                  </div>
+
+                  <div className="card" style={{ marginBottom: 16 }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th style={{ width:36 }}>
+                            <input type="checkbox"
+                              checked={selCount === nota.itens.length}
+                              onChange={e => toggleTodosNota(notaAtiva, e.target.checked)}
+                              style={{ accentColor:'#1d4ed8' }} />
+                          </th>
+                          <th>Produto (NF-e)</th><th>EAN</th><th>Qtd</th><th>Custo unit.</th><th>Unid.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {nota.itens.map((item, idx) => (
+                          <tr key={idx} style={{ opacity: nota.selecionados[idx] ? 1 : 0.4 }}>
+                            <td>
+                              <input type="checkbox" checked={!!nota.selecionados[idx]}
+                                onChange={() => toggleItem(notaAtiva, idx)}
+                                style={{ accentColor:'#1d4ed8' }} />
+                            </td>
+                            <td><strong style={{ fontWeight:500 }}>{item.nome}</strong></td>
+                            <td>
+                              {item.ean
+                                ? <span style={{ fontFamily:'monospace', fontSize:11, background:'#f5f5f3', padding:'2px 6px', borderRadius:4 }}>{item.ean}</span>
+                                : <span style={{ fontSize:11, background:'#fef3c7', color:'#d97706', padding:'2px 6px', borderRadius:4 }}>sem EAN</span>}
+                            </td>
+                            <td style={{ fontWeight:500 }}>{item.qtd} {item.unidade}</td>
+                            <td>{fmtR(item.custo)}</td>
+                            <td>{item.unidade}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )
+            })()}
+
+            {/* ações gerais */}
+            <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
+              <button className="btn" onClick={reiniciar}>← Recomeçar</button>
+              <button className="btn btn-primary" onClick={iniciarConfirmacao} disabled={!totalSelecionados}>
+                Revisar e confirmar {totalSelecionados} iten{totalSelecionados !== 1 ? 's' : ''} →
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ══ CONFIRMAÇÃO ITEM A ITEM ══ */}
+        {etapa === 'confirmando' && stepItem && (
+          <div style={{ maxWidth: 580 }}>
+            {/* progresso geral */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#888', marginBottom:4 }}>
+                <span>
+                  Nota {stepNotaIdx+1}/{stepNotas.length} — <strong>{stepNota.info.numero || stepNota.fileName}</strong>
+                  &nbsp;· Item {stepItemIdx+1}/{stepNota.itensSelecionados.length}
+                </span>
+                <span>{stepAtual}/{totalSteps} total</span>
+              </div>
+              <div style={{ height:6, background:'#e8e8e5', borderRadius:4, overflow:'hidden' }}>
+                <div style={{ height:'100%', background:'#1d4ed8', borderRadius:4, width:`${((stepAtual-1)/totalSteps)*100}%`, transition:'width 0.3s' }} />
+              </div>
+              {/* bolinhas por nota */}
+              <div style={{ display:'flex', gap:8, marginTop:8, flexWrap:'wrap' }}>
+                {stepNotas.map((n, ni) => (
+                  <div key={ni} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                    <div style={{ fontSize:11, color:'#888' }}>NF {n.info.numero||ni+1}</div>
+                    <div style={{ display:'flex', gap:3 }}>
+                      {n.itensSelecionados.map((it, ii) => {
+                        const isAtual = ni===stepNotaIdx && ii===stepItemIdx
+                        const isPast  = ni<stepNotaIdx || (ni===stepNotaIdx && ii<stepItemIdx)
+                        return (
+                          <div key={ii} style={{
+                            width:18, height:18, borderRadius:'50%', fontSize:10,
+                            display:'flex', alignItems:'center', justifyContent:'center',
+                            background: it.pular?'#fee2e2': isPast?'#dcfce7': isAtual?'#1d4ed8':'#f5f5f3',
+                            color: it.pular?'#dc2626': isPast?'#16a34a': isAtual?'#fff':'#888',
+                            border: isAtual?'2px solid #1d4ed8':'1px solid #e8e8e5',
+                          }}>
+                            {it.pular?'✕': isPast?'✓': ii+1}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* card do item */}
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
+                <div>
+                  <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>NF {stepNota.info.numero} — {stepNota.info.emitente}</div>
+                  <div style={{ fontSize:16, fontWeight:600 }}>{stepItem.nome}</div>
                 </div>
-                <div style={{ height:6, background:'#e8e8e5', borderRadius:4, overflow:'hidden' }}>
-                  <div style={{ height:'100%', background:'#1d4ed8', borderRadius:4, width:`${((stepIdx)/stepLinhas.length)*100}%`, transition:'width 0.3s' }} />
+              </div>
+
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Quantidade <span style={{ fontSize:11, color:'#888' }}>(NF-e: {stepItem.qtd} {stepItem.unidade})</span></label>
+                  <input type="number" min="0" step="0.1" value={stepQtd}
+                    onChange={e => setStepQtd(Math.max(0, parseFloat(e.target.value)||0))}
+                    style={{ fontSize:16, fontWeight:600, textAlign:'center' }} autoFocus />
                 </div>
-                {/* mini lista de progresso */}
-                <div style={{ display:'flex', gap:4, marginTop:8, flexWrap:'wrap' }}>
-                  {stepLinhas.map((l, i) => (
-                    <div key={i} style={{
-                      width:24, height:24, borderRadius:'50%', fontSize:11,
-                      display:'flex', alignItems:'center', justifyContent:'center', fontWeight:500,
-                      background: l.pular ? '#fee2e2' : i < stepIdx ? '#dcfce7' : i === stepIdx ? '#1d4ed8' : '#f5f5f3',
-                      color: l.pular ? '#dc2626' : i < stepIdx ? '#16a34a' : i === stepIdx ? '#fff' : '#888',
-                      border: i === stepIdx ? '2px solid #1d4ed8' : '1px solid #e8e8e5',
-                    }}>
-                      {l.pular ? '✕' : i < stepIdx ? '✓' : i+1}
+                <div className="form-row">
+                  <label>Custo unitário</label>
+                  <input type="number" step="0.01" value={stepItem.custo}
+                    onChange={e => setStepNotas(prev => prev.map((n,ni) => ni!==stepNotaIdx?n:{...n,
+                      itensSelecionados:n.itensSelecionados.map((it,ii) => ii!==stepItemIdx?it:{...it,custo:parseFloat(e.target.value)||0})}))}
+                    style={{ textAlign:'center' }} />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <label>
+                  Código de barras (EAN) <span style={{ color:'#dc2626' }}>*</span>
+                </label>
+                <div style={{
+                  padding:'8px 12px', borderRadius:8, marginBottom:8, fontSize:12,
+                  background: stepItem.ean ? '#eff6ff' : '#fef3c7',
+                  color: stepItem.ean ? '#1d4ed8' : '#d97706',
+                  border: `1px solid ${stepItem.ean ? '#bfdbfe' : '#fde68a'}`,
+                }}>
+                  {stepItem.ean
+                    ? <>Digite o código da nota para confirmar: <strong style={{ fontFamily:'monospace' }}>{stepItem.ean}</strong></>
+                    : <>Esta nota não possui EAN. Digite <strong>indisponível</strong> para avançar.</>}
+                </div>
+                <input
+                  value={stepEan}
+                  onChange={e => { setStepEan(e.target.value); setStepEanErro('') }}
+                  onKeyDown={e => e.key==='Enter' && stepProximo(false)}
+                  placeholder={stepItem.ean ? 'Digite o código...' : 'indisponível'}
+                  style={{
+                    fontFamily:'monospace', fontSize:15,
+                    borderColor: stepEanErro ? '#dc2626'
+                      : stepEan && (stepEan.replace(/\D/g,'')===(stepItem.ean||'') || stepEan.toLowerCase().trim()==='indisponível' || stepEan.toLowerCase().trim()==='indisponivel')
+                        ? '#16a34a' : undefined,
+                  }}
+                />
+                {stepEanErro && <div style={{ fontSize:12, color:'#dc2626', marginTop:4, fontWeight:500 }}>⛔ {stepEanErro}</div>}
+                {stepEan && !stepEanErro && (stepEan.replace(/\D/g,'')===(stepItem.ean||'') || ['indisponível','indisponivel'].includes(stepEan.toLowerCase().trim())) && (
+                  <div style={{ fontSize:12, color:'#16a34a', marginTop:4 }}>✓ Confirmado</div>
+                )}
+              </div>
+
+              <div className="form-row">
+                <label>Categoria</label>
+                <select value={stepCat} onChange={e => setStepCat(e.target.value)}>
+                  <option>Material escolar</option><option>Limpeza</option>
+                  <option>Escritório</option><option>Esportivo</option><option>Outro</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
+              <button className="btn" onClick={stepAnterior}>← Anterior</button>
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="btn btn-danger" onClick={() => stepProximo(true)}>Pular</button>
+                <button className="btn btn-primary" onClick={() => stepProximo(false)} disabled={saving} style={{ minWidth:160 }}>
+                  {saving ? 'Salvando...'
+                    : stepAtual === totalSteps ? '✓ Confirmar e finalizar'
+                    : 'Confirmar →'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ SUCESSO ══ */}
+        {etapa === 'sucesso' && resultado && (
+          <div style={{ maxWidth: 540 }}>
+            <div className="card" style={{ textAlign:'center', padding:'32px 24px' }}>
+              <div style={{ fontSize:40, marginBottom:16 }}>✅</div>
+              <h3 style={{ fontSize:18, fontWeight:600, marginBottom:8 }}>Importação concluída!</h3>
+              <div className="cards-grid" style={{ marginBottom:20 }}>
+                <div className="metric-card"><div className="metric-label">Notas importadas</div><div className="metric-value blue">{resultado.notas.length}</div></div>
+                <div className="metric-card"><div className="metric-label">Novos</div><div className="metric-value green">{resultado.cadastrados}</div></div>
+                <div className="metric-card"><div className="metric-label">Entradas</div><div className="metric-value yellow">{resultado.atualizados}</div></div>
+                {resultado.erros > 0 && <div className="metric-card"><div className="metric-label">Erros</div><div className="metric-value red">{resultado.erros}</div></div>}
+              </div>
+              {resultado.notas.map((n, ni) => (
+                <div key={ni} style={{ textAlign:'left', borderTop:'1px solid #e8e8e5', paddingTop:12, marginTop:12 }}>
+                  <div style={{ fontWeight:600, fontSize:13, marginBottom:6 }}>NF {n.info.numero} — {n.info.emitente}</div>
+                  {n.itensSelecionados.filter(it => !it.pular && it.qtd > 0).map((it, ii) => (
+                    <div key={ii} style={{ display:'flex', justifyContent:'space-between', fontSize:12, padding:'3px 0', borderBottom:'1px solid #f5f5f3' }}>
+                      <span>{it.nome}</span>
+                      <span style={{ color:'#16a34a', fontWeight:500 }}>+{it.qtd}</span>
                     </div>
                   ))}
                 </div>
-              </div>
-
-              {/* card do item atual */}
-              <div className="card" style={{ marginBottom:16 }}>
-                {/* cabeçalho do item */}
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
-                  <div>
-                    <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>
-                      {itemAtual.produto ? '✓ Produto cadastrado' : '+ Novo produto será criado'}
-                    </div>
-                    <div style={{ fontSize:16, fontWeight:600 }}>{itemAtual.nome}</div>
-                    {itemAtual.produto?.cor    && <span style={{ fontSize:12, color:'#888' }}>{itemAtual.produto.cor}</span>}
-                    {itemAtual.produto?.tamanho && <span style={{ fontSize:12, color:'#888', marginLeft:6 }}>{itemAtual.produto.tamanho}</span>}
-                  </div>
-                  {itemAtual.ean
-                    ? <span style={{ fontFamily:'monospace', fontSize:11, background:'#f5f5f3', padding:'3px 8px', borderRadius:4, color:'#888' }}>{itemAtual.ean}</span>
-                    : <span style={{ fontSize:11, background:'#fef3c7', color:'#d97706', padding:'3px 8px', borderRadius:4 }}>Sem código de barras — identificado pelo nome</span>}
-                </div>
-
-                {/* situação do estoque atual */}
-                {jaTemEstoque && (
-                  <div style={{ background:'#f5f5f3', borderRadius:8, padding:'10px 14px', marginBottom:16, display:'flex', gap:24, fontSize:13 }}>
-                    <div><span style={{ color:'#888' }}>Estoque atual: </span><strong>{qtdAtual} {itemAtual.unidade}</strong></div>
-                    <div><span style={{ color:'#888' }}>Após entrada: </span><strong style={{ color:'#16a34a' }}>{qtdAtual + (parseInt(stepQtd)||0)} {itemAtual.unidade}</strong></div>
-                    <div><span style={{ color:'#888' }}>Custo atual: </span><strong>{fmtR(itemAtual.itemEstoque?.custo_unitario||0)}</strong></div>
-                  </div>
-                )}
-                {!jaTemEstoque && (
-                  <div style={{ background:'#eff6ff', borderRadius:8, padding:'10px 14px', marginBottom:16, fontSize:13, color:'#1d4ed8' }}>
-                    Este item será criado no estoque com a quantidade informada.
-                  </div>
-                )}
-
-                {/* campos editáveis */}
-                <div className="form-grid">
-                  <div className="form-row">
-                    <label>
-                      Quantidade a creditar
-                      <span style={{ fontSize:11, color:'#888', marginLeft:6 }}>(NF-e: {itemAtual.qtd} {itemAtual.unidade})</span>
-                    </label>
-                    <input
-                      type="number" min="0"
-                      value={stepQtd}
-                      onChange={e => setStepQtd(Math.max(0, parseInt(e.target.value)||0))}
-                      style={{ fontSize:18, fontWeight:600, textAlign:'center' }}
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-row">
-                    <label>Custo unitário</label>
-                    <input
-                      type="number" step="0.01"
-                      value={itemAtual.custo}
-                      onChange={e => setStepLinhas(prev => prev.map((l,i) => i===stepIdx ? {...l, custo: parseFloat(e.target.value)||0} : l))}
-                      style={{ textAlign:'center' }}
-                    />
-                  </div>
-                </div>
-                {/* ── confirmação obrigatória do código de barras ── */}
-                <div className="form-row" style={{ marginTop: 4 }}>
-                  <label>
-                    Confirmação do código de barras
-                    <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>
-                  </label>
-
-                  {/* instrução contextual */}
-                  <div style={{
-                    padding: '8px 12px', borderRadius: 8, marginBottom: 8, fontSize: 12,
-                    background: itemAtual.ean ? '#eff6ff' : '#fef3c7',
-                    color: itemAtual.ean ? '#1d4ed8' : '#d97706',
-                    border: `1px solid ${itemAtual.ean ? '#bfdbfe' : '#fde68a'}`,
-                  }}>
-                    {itemAtual.ean
-                      ? <>Digite o código de barras da nota fiscal para confirmar: <strong style={{ fontFamily:'monospace' }}>{itemAtual.ean}</strong></>
-                      : <>Esta nota não possui código de barras. Digite <strong>indisponível</strong> para avançar.</>}
-                  </div>
-
-                  <input
-                    value={stepEan}
-                    onChange={e => { setStepEan(e.target.value); setStepEanErro('') }}
-                    onKeyDown={e => { if (e.key === 'Enter') stepProximo(false) }}
-                    placeholder={itemAtual.ean ? 'Digite o código de barras...' : 'indisponível'}
-                    inputMode={itemAtual.ean ? 'numeric' : 'text'}
-                    autoFocus
-                    style={{
-                      fontFamily: 'monospace',
-                      letterSpacing: 1,
-                      fontSize: 15,
-                      borderColor: stepEanErro ? '#dc2626'
-                        : stepEan && !stepEanErro && (
-                            stepEan.replace(/\D/g,'') === itemAtual.ean ||
-                            stepEan.toLowerCase().trim() === 'indisponível' ||
-                            stepEan.toLowerCase().trim() === 'indisponivel'
-                          ) ? '#16a34a'
-                        : undefined,
-                    }}
-                  />
-
-                  {/* feedback em tempo real */}
-                  {stepEan && (() => {
-                    const v = stepEan.trim().toLowerCase()
-                    const vNum = stepEan.replace(/\D/g,'')
-                    const isIndisp = v === 'indisponível' || v === 'indisponivel'
-                    const isCorreto = itemAtual.ean ? vNum === itemAtual.ean : isIndisp
-                    if (isCorreto) return (
-                      <div style={{ fontSize:12, color:'#16a34a', marginTop:4, fontWeight:500 }}>
-                        ✓ {isIndisp ? 'Será salvo sem código de barras' : 'Código confirmado'}
-                      </div>
-                    )
-                    if (itemAtual.ean && vNum && vNum !== itemAtual.ean) return (
-                      <div style={{ fontSize:12, color:'#dc2626', marginTop:4 }}>
-                        Código diferente do informado na nota fiscal
-                      </div>
-                    )
-                    return null
-                  })()}
-
-                  {stepEanErro && (
-                    <div style={{ fontSize:12, color:'#dc2626', marginTop:4, fontWeight:500 }}>
-                      ⛔ {stepEanErro}
-                    </div>
-                  )}
-                </div>
-
-                {!jaTemEstoque && (
-                  <div className="form-row">
-                    <label>Categoria</label>
-                    <select value={stepCat} onChange={e => setStepCat(e.target.value)}>
-                      <option>Material escolar</option>
-                      <option>Limpeza</option>
-                      <option>Escritório</option>
-                      <option>Esportivo</option>
-                      <option>Outro</option>
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              {/* ações do step */}
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
-                <button className="btn" onClick={stepAnterior}>
-                  ← {stepIdx===0 ? 'Voltar à lista' : 'Anterior'}
-                </button>
-                <div style={{ display:'flex', gap:8 }}>
-                  <button
-                    className="btn btn-danger"
-                    onClick={() => stepProximo(true)}
-                    style={{ fontSize:13 }}>
-                    Pular este item
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => stepProximo(false)}
-                    disabled={saving}
-                    style={{ minWidth:140 }}>
-                    {saving
-                      ? 'Salvando...'
-                      : stepIdx === stepLinhas.length - 1
-                      ? '✓ Confirmar e finalizar'
-                      : `Confirmar e avançar →`}
-                  </button>
-                </div>
+              ))}
+              <div style={{ display:'flex', gap:8, justifyContent:'center', marginTop:20 }}>
+                <button className="btn" onClick={reiniciar}>Importar outras NF-es</button>
+                <button className="btn btn-primary" onClick={() => setTabAtiva('historico')}>Ver histórico</button>
               </div>
             </div>
-          )}
+          </div>
+        )}
+      </>)}
 
-          {/* ── SUCESSO ── */}
-          {etapa === 'sucesso' && resultado && (
-            <div style={{ maxWidth:520 }}>
-              <div className="card" style={{ textAlign:'center', padding:'32px 24px' }}>
-                <div style={{ fontSize:40, marginBottom:16 }}>✅</div>
-                <h3 style={{ fontSize:18, fontWeight:600, marginBottom:8 }}>Importação concluída!</h3>
-                <p style={{ color:'#888', fontSize:13, marginBottom:24 }}>Estoque atualizado com sucesso.</p>
-                <div className="cards-grid" style={{ marginBottom:24 }}>
-                  <div className="metric-card"><div className="metric-label">Novos no estoque</div><div className="metric-value green">{resultado.cadastrados}</div></div>
-                  <div className="metric-card"><div className="metric-label">Entradas realizadas</div><div className="metric-value yellow">{resultado.atualizados}</div></div>
-                  {resultado.erros > 0 && <div className="metric-card"><div className="metric-label">Erros</div><div className="metric-value red">{resultado.erros}</div></div>}
-                </div>
-                {resultado.log?.length > 0 && (
-                  <div style={{ textAlign:'left', borderTop:'1px solid #e8e8e5', paddingTop:16 }}>
-                    <div style={{ fontSize:12, color:'#888', marginBottom:8, fontWeight:500 }}>Itens processados:</div>
-                    <div style={{ maxHeight:200, overflowY:'auto' }}>
-                      {resultado.log.map((l,i) => (
-                        <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'5px 0', borderBottom:'1px solid #f5f5f3', fontSize:13 }}>
-                          <span>{l.nome}</span>
-                          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                            <span style={{ color:'#16a34a', fontWeight:500 }}>+{l.qtd}</span>
-                            <span className={`badge ${l.tipo==='entrada'?'badge-warning':'badge-success'}`}>{l.tipo}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div style={{ display:'flex', gap:8, justifyContent:'center', marginTop:20 }}>
-                  <button className="btn" onClick={reiniciar}>Importar outra NF-e</button>
-                  <button className="btn btn-primary" onClick={() => setTabAtiva('historico')}>Ver notas importadas</button>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── HISTÓRICO ── */}
+      {/* ══ HISTÓRICO ══ */}
       {tabAtiva === 'historico' && (
         loadingNotas ? <div className="loading">Carregando...</div> : (
           <div className="card">
             <table>
-              <thead>
-                <tr><th>NF / Série</th><th>Emitente</th><th>CNPJ</th><th>Data emissão</th><th>Importado em</th><th>Novos</th><th>Entradas</th><th>Status</th><th>Ação</th></tr>
-              </thead>
+              <thead><tr><th>NF / Série</th><th>Emitente</th><th>CNPJ</th><th>Data emissão</th><th>Importado em</th><th>Novos</th><th>Entradas</th><th>Status</th><th>Ação</th></tr></thead>
               <tbody>
-                {notas.map(nota => (
+                {notasImportadas.map(nota => (
                   <tr key={nota.id} style={{ opacity: nota.desfeita ? 0.5 : 1 }}>
                     <td><strong style={{ fontWeight:500 }}>{nota.numero} / {nota.serie}</strong></td>
                     <td>{nota.emitente}</td>
@@ -717,16 +698,10 @@ export default function ImportarNFe() {
                     <td><span className="badge badge-success">{nota.itens_cadastrados}</span></td>
                     <td><span className="badge badge-warning">{nota.itens_atualizados}</span></td>
                     <td>{nota.desfeita ? <span className="badge badge-neutral">Desfeita</span> : <span className="badge badge-success">Ativa</span>}</td>
-                    <td>
-                      {!nota.desfeita && (
-                        <button className="btn btn-sm btn-danger" disabled={desfazendoId===nota.id} onClick={() => desfazerNota(nota)}>
-                          {desfazendoId===nota.id ? 'Desfazendo...' : 'Desfazer'}
-                        </button>
-                      )}
-                    </td>
+                    <td>{!nota.desfeita && <button className="btn btn-sm btn-danger" disabled={desfazendoId===nota.id} onClick={() => desfazerNota(nota)}>{desfazendoId===nota.id?'Desfazendo...':'Desfazer'}</button>}</td>
                   </tr>
                 ))}
-                {!notas.length && <tr><td colSpan={9} className="empty">Nenhuma NF-e importada ainda</td></tr>}
+                {!notasImportadas.length && <tr><td colSpan={9} className="empty">Nenhuma NF-e importada ainda</td></tr>}
               </tbody>
             </table>
           </div>
