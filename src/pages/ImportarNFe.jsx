@@ -346,6 +346,7 @@ export default function ImportarNFe() {
         itens_json: JSON.stringify(log),
         itens_cadastrados: cadastrados,
         itens_atualizados: atualizados,
+        origem: 'nfe',
       })
       totalCadastrados += cadastrados
       totalAtualizados += atualizados
@@ -357,20 +358,30 @@ export default function ImportarNFe() {
   }
 
   async function desfazerNota(nota) {
-    if (!window.confirm(`Desfazer a importação da NF ${nota.numero}?`)) return
+    const origem = nota.origem === 'csv' ? 'CSV' : `NF-e ${nota.numero}`
+    const emitente = nota.origem === 'csv' ? '' : `\nEmitente: ${nota.emitente}`
+    if (!window.confirm(`Desfazer a entrada via ${origem}?${emitente}\n\nAs quantidades adicionadas serão subtraídas do estoque.`)) return
     setDesfazendoId(nota.id)
     try {
       const log = JSON.parse(nota.itens_json || '[]')
+      let erros = 0
       for (const it of log) {
-        const { data: item } = await supabase.from('estoque').select('quantidade').eq('id', it.id).single()
-        if (!item) continue
-        await supabase.from('estoque').update({ quantidade: Math.max(0, item.quantidade - it.qtd) }).eq('id', it.id)
-        await supabase.from('movimentacoes').insert({
-          item_id: it.id, item_nome: it.nome, tipo: 'ajuste', quantidade: it.qtd,
-          observacoes: `Estorno NF-e ${nota.numero}`,
-        })
+        if (!it.id) continue  // itens CSV sem id (tipo:'csv') são ignorados
+        try {
+          const { data: item } = await supabase.from('estoque').select('quantidade').eq('id', it.id).single()
+          if (!item) continue
+          const novaQtd = Math.max(0, item.quantidade - it.qtd)
+          await supabase.from('estoque').update({ quantidade: novaQtd }).eq('id', it.id)
+          await supabase.from('movimentacoes').insert({
+            item_id: it.id, item_nome: it.nome, tipo: 'ajuste', quantidade: it.qtd,
+            observacoes: `Estorno ${origem}`,
+          })
+        } catch { erros++ }
       }
-      await supabase.from('nfe_importacoes').update({ desfeita: true, desfeita_em: new Date().toISOString() }).eq('id', nota.id)
+      await supabase.from('nfe_importacoes')
+        .update({ desfeita: true, desfeita_em: new Date().toISOString() })
+        .eq('id', nota.id)
+      if (erros > 0) alert(`Atenção: ${erros} item(ns) não puderam ser revertidos.`)
       carregarNotas()
     } catch (e) { alert('Erro ao desfazer: ' + e.message) }
     setDesfazendoId(null)
@@ -479,6 +490,7 @@ export default function ImportarNFe() {
     const { data: estoqueDB }  = await supabase.from('estoque').select('id,nome,quantidade,custo_unitario,custo_medio,produto_id,codigo_barras')
 
     let criados = 0, atualizados = 0, erros = 0
+    const csvLog = []
 
     for (const linha of linhasValidas) {
       try {
@@ -514,18 +526,33 @@ export default function ImportarNFe() {
             quantidade: novaQtd, custo_unitario: linha.custo,
             custo_medio: parseFloat(custoMedio.toFixed(2)),
           }).eq('id', itemEst.id)
+          csvLog.push({ id: itemEst.id, nome: linha.nome, qtd: linha.quantidade, tipo: 'entrada' })
           atualizados++
         } else {
-          await supabase.from('estoque').insert({
+          const { data: ne } = await supabase.from('estoque').insert({
             produto_id: produtoId, nome: linha.nome.trim(),
             categoria: linha.categoria, custo_unitario: linha.custo,
             custo_medio: linha.custo, quantidade: linha.quantidade,
             unidade: linha.unidade || 'un', codigo_barras: ean || null,
-          })
+          }).select('id').single()
+          if (ne) csvLog.push({ id: ne.id, nome: linha.nome, qtd: linha.quantidade, tipo: 'cadastro' })
           criados++
         }
       } catch(e) { console.error(e); erros++ }
     }
+
+    // registra no histórico de entradas como CSV (com ids reais para poder desfazer)
+    await supabase.from('nfe_importacoes').insert({
+      numero: `CSV-${new Date().toISOString().slice(0,10)}`,
+      serie: '—',
+      emitente: 'Importação CSV',
+      cnpj: '—',
+      data_emissao: new Date().toISOString().split('T')[0],
+      itens_json: JSON.stringify(csvLog),
+      itens_cadastrados: criados,
+      itens_atualizados: atualizados,
+      origem: 'csv',
+    }).catch(() => {})
 
     setCsvSaving(false)
     setCsvResultado({ criados, atualizados, erros, total: linhasValidas.length })
@@ -539,7 +566,7 @@ export default function ImportarNFe() {
       <div className="tabs">
         <div className={`tab${tabAtiva==='importar'?' active':''}`} onClick={() => setTabAtiva('importar')}>Importar NF-e</div>
         <div className={`tab${tabAtiva==='csv'?' active':''}`} onClick={() => setTabAtiva('csv')}>Importar CSV</div>
-        <div className={`tab${tabAtiva==='historico'?' active':''}`} onClick={() => setTabAtiva('historico')}>Notas importadas</div>
+        <div className={`tab${tabAtiva==='historico'?' active':''}`} onClick={() => setTabAtiva('historico')}>Entradas</div>
       </div>
 
       {tabAtiva === 'importar' && (<>
@@ -955,6 +982,7 @@ export default function ImportarNFe() {
                 </div>
                 <div style={{ display:'flex', gap:8, justifyContent:'center' }}>
                   <button className="btn" onClick={() => { setCsvEtapa('upload'); setCsvLinhas([]); setCsvResultado(null) }}>Importar outro CSV</button>
+                  <button className="btn btn-primary" onClick={() => setTabAtiva('historico')}>Ver entradas</button>
                 </div>
               </div>
             </div>
@@ -967,13 +995,17 @@ export default function ImportarNFe() {
         loadingNotas ? <div className="loading">Carregando...</div> : (
           <div className="card">
             <table>
-              <thead><tr><th>NF / Série</th><th>Emitente</th><th>CNPJ</th><th>Data emissão</th><th>Importado em</th><th>Novos</th><th>Entradas</th><th>Status</th><th>Ação</th></tr></thead>
+              <thead><tr><th>Origem</th><th>NF / Série</th><th>Emitente</th><th>Data emissão</th><th>Importado em</th><th>Novos</th><th>Entradas</th><th>Status</th><th>Ação</th></tr></thead>
               <tbody>
                 {notasImportadas.map(nota => (
                   <tr key={nota.id} style={{ opacity: nota.desfeita ? 0.5 : 1 }}>
-                    <td><strong style={{ fontWeight:500 }}>{nota.numero} / {nota.serie}</strong></td>
+                    <td>
+                      {nota.origem === 'csv'
+                        ? <span className="badge badge-info">CSV</span>
+                        : <span className="badge badge-neutral">NF-e</span>}
+                    </td>
+                    <td><strong style={{ fontWeight:500 }}>{nota.numero === 'CSV' ? '—' : `${nota.numero} / ${nota.serie}`}</strong></td>
                     <td>{nota.emitente}</td>
-                    <td style={{ fontSize:12, color:'#888' }}>{nota.cnpj}</td>
                     <td>{fmtData(nota.data_emissao)}</td>
                     <td style={{ fontSize:12, color:'#888' }}>{nota.created_at ? new Date(nota.created_at).toLocaleDateString('pt-BR') : '—'}</td>
                     <td><span className="badge badge-success">{nota.itens_cadastrados}</span></td>
