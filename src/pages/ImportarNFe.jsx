@@ -59,6 +59,14 @@ function parseXmlNFe(xmlStr) {
 // ── componente principal ──────────────────────────────────────
 export default function ImportarNFe() {
   const [tabAtiva, setTabAtiva]       = useState('importar')
+
+  // ── estado CSV ──
+  const [csvLinhas, setCsvLinhas]     = useState([])   // linhas parseadas
+  const [csvErros, setCsvErros]       = useState([])   // erros por linha
+  const [csvSaving, setCsvSaving]     = useState(false)
+  const [csvResultado, setCsvResultado] = useState(null)
+  const [csvEtapa, setCsvEtapa]       = useState('upload') // upload | previa | sucesso
+  const csvRef = useRef()
   // etapas: upload | selecao | confirmando | sucesso
   const [etapa, setEtapa]             = useState('upload')
 
@@ -384,11 +392,153 @@ export default function ImportarNFe() {
   const stepAtual  = stepNotas.slice(0, stepNotaIdx).reduce((a, n) => a + n.itensSelecionados.length, 0) + stepItemIdx + 1
   const jaTemEst   = false  // será checado no commit
 
+  // ── funções CSV ──────────────────────────────────────────────
+  function parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/)
+    if (lines.length < 2) return { rows: [], erro: 'Arquivo vazio ou sem dados.' }
+    const raw = lines[0].split(';').map(h => h.trim().replace(/^"|"$/g,'').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,'_'))
+
+    const mapa = {
+      nome: ['nome','produto','descricao','description','name'],
+      codigo_barras: ['codigo_barras','codigo','ean','gtin','barcode','cod_barras'],
+      categoria: ['categoria','category','cat'],
+      cor: ['cor','color','colour'],
+      tamanho: ['tamanho','size','tam'],
+      quantidade: ['quantidade','qtd','qty','quantity','estoque','quant'],
+      custo: ['custo','custo_unitario','preco','price','valor','cost'],
+      unidade: ['unidade','un','unit','und'],
+    }
+    const idx = {}
+    Object.entries(mapa).forEach(([campo, aliases]) => {
+      const found = raw.findIndex(h => aliases.includes(h))
+      if (found >= 0) idx[campo] = found
+    })
+    if (idx.nome === undefined) return { rows: [], erro: 'Coluna "nome" obrigatória não encontrada.' }
+
+    const rows = lines.slice(1).map((line, li) => {
+      const vals = line.split(';').map(v => v.trim().replace(/^"|"$/g,''))
+      return {
+        _linha: li + 2,
+        nome:          vals[idx.nome]          || '',
+        codigo_barras: vals[idx.codigo_barras] || '',
+        categoria:     vals[idx.categoria]     || 'Material escolar',
+        cor:           vals[idx.cor]           || '',
+        tamanho:       vals[idx.tamanho]       || '',
+        quantidade:    parseFloat((vals[idx.quantidade]||'0').replace(',','.')) || 0,
+        custo:         parseFloat((vals[idx.custo]||'0').replace(',','.')) || 0,
+        unidade:       vals[idx.unidade]       || 'un',
+      }
+    }).filter(r => r.nome)
+
+    return { rows, erro: null }
+  }
+
+  function handleCSVFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const { rows, erro } = parseCSV(ev.target.result)
+      if (erro) { alert(erro); return }
+      const erros = rows.map(r => {
+        if (!r.nome.trim()) return 'Nome obrigatório'
+        if (r.quantidade < 0) return 'Quantidade não pode ser negativa'
+        return null
+      })
+      setCsvLinhas(rows)
+      setCsvErros(erros)
+      setCsvEtapa('previa')
+    }
+    reader.readAsText(file, 'UTF-8')
+  }
+
+  function baixarTemplate() {
+    const header = 'nome;codigo_barras;categoria;cor;tamanho;quantidade;custo;unidade'
+    const ex1 = 'Lápis HB Faber-Castell;7891360612659;Material escolar;;;100;1.50;un'
+    const ex2 = 'Detergente Neutro 500ml;7891149010013;Limpeza;;;24;2.80;un'
+    const ex3 = 'Camiseta Polo;7891234567890;Outro;Azul;M;10;35.00;un'
+    const csv = [header, ex1, ex2, ex3].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'template_importacao.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function updateCsvLinha(idx, field, value) {
+    setCsvLinhas(prev => prev.map((l, i) => i === idx ? { ...l, [field]: value } : l))
+  }
+
+  async function confirmarCSV() {
+    const linhasValidas = csvLinhas.filter((_, i) => !csvErros[i])
+    if (!linhasValidas.length) { alert('Nenhuma linha válida para importar.'); return }
+    setCsvSaving(true)
+
+    const { data: produtosDB } = await supabase.from('produtos').select('id,nome,codigo_barras')
+    const { data: estoqueDB }  = await supabase.from('estoque').select('id,nome,quantidade,custo_unitario,custo_medio,produto_id,codigo_barras')
+
+    let criados = 0, atualizados = 0, erros = 0
+
+    for (const linha of linhasValidas) {
+      try {
+        const ean = (linha.codigo_barras || '').replace(/\D/g,'')
+
+        // A: produto
+        let produto = ean ? produtosDB?.find(p => p.codigo_barras === ean) : null
+        if (!produto) produto = produtosDB?.find(p => p.nome?.toLowerCase().trim() === linha.nome.toLowerCase().trim())
+
+        let produtoId = produto?.id || null
+        if (!produtoId) {
+          const { data: np, error: ep } = await supabase.from('produtos').insert({
+            nome: linha.nome.trim(), codigo_barras: ean || null,
+            categoria: linha.categoria, cor: linha.cor || null,
+            tamanho: linha.tamanho || null, ativo: true,
+          }).select('id').single()
+          if (ep) throw new Error(ep.message)
+          produtoId = np.id
+          produtosDB?.push({ id: np.id, nome: linha.nome, codigo_barras: ean })
+        }
+
+        // B: estoque
+        let itemEst = null
+        if (produtoId) itemEst = estoqueDB?.find(i => i.produto_id === produtoId)
+        if (!itemEst && ean) itemEst = estoqueDB?.find(i => i.codigo_barras === ean)
+
+        if (itemEst) {
+          const novaQtd = (itemEst.quantidade||0) + linha.quantidade
+          const custoAnt = itemEst.custo_medio || itemEst.custo_unitario || 0
+          const qtdAnt = itemEst.quantidade || 0
+          const custoMedio = qtdAnt > 0 ? ((qtdAnt*custoAnt)+(linha.quantidade*linha.custo))/novaQtd : linha.custo
+          await supabase.from('estoque').update({
+            quantidade: novaQtd, custo_unitario: linha.custo,
+            custo_medio: parseFloat(custoMedio.toFixed(2)),
+          }).eq('id', itemEst.id)
+          atualizados++
+        } else {
+          await supabase.from('estoque').insert({
+            produto_id: produtoId, nome: linha.nome.trim(),
+            categoria: linha.categoria, custo_unitario: linha.custo,
+            custo_medio: linha.custo, quantidade: linha.quantidade,
+            unidade: linha.unidade || 'un', codigo_barras: ean || null,
+          })
+          criados++
+        }
+      } catch(e) { console.error(e); erros++ }
+    }
+
+    setCsvSaving(false)
+    setCsvResultado({ criados, atualizados, erros, total: linhasValidas.length })
+    setCsvEtapa('sucesso')
+  }
+
   return (
     <div>
       <div className="page-header"><div className="page-title">NF-e</div></div>
+
       <div className="tabs">
         <div className={`tab${tabAtiva==='importar'?' active':''}`} onClick={() => setTabAtiva('importar')}>Importar NF-e</div>
+        <div className={`tab${tabAtiva==='csv'?' active':''}`} onClick={() => setTabAtiva('csv')}>Importar CSV</div>
         <div className={`tab${tabAtiva==='historico'?' active':''}`} onClick={() => setTabAtiva('historico')}>Notas importadas</div>
       </div>
 
@@ -681,7 +831,138 @@ export default function ImportarNFe() {
         )}
       </>)}
 
-      {/* ══ HISTÓRICO ══ */}
+      {/* ══ CSV ══ */}
+      {tabAtiva === 'csv' && (
+        <>
+          {csvEtapa === 'upload' && (
+            <div style={{ maxWidth: 580 }}>
+              <div className="alert alert-info" style={{ marginBottom: 16 }}>
+                Importe produtos e quantidades em lote via planilha CSV. Baixe o template, preencha e importe.
+              </div>
+              <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+                <button className="btn" onClick={baixarTemplate} style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  ⬇ Baixar template CSV
+                </button>
+              </div>
+              <div className="card">
+                <div style={{ border:'2px dashed #d1d5db', borderRadius:10, padding:'40px 24px', textAlign:'center', cursor:'pointer' }}
+                  onClick={() => csvRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor='#1d4ed8' }}
+                  onDragLeave={e => { e.currentTarget.style.borderColor='#d1d5db' }}
+                  onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor='#d1d5db'; handleCSVFile({ target: { files: e.dataTransfer.files } }) }}>
+                  <div style={{ fontSize:40, marginBottom:12 }}>📊</div>
+                  <div style={{ fontWeight:500, marginBottom:6 }}>Clique ou arraste o arquivo CSV aqui</div>
+                  <div style={{ fontSize:12, color:'#888' }}>Arquivo .csv com separador ponto e vírgula ( ; )</div>
+                  <input ref={csvRef} type="file" accept=".csv,.CSV" style={{ display:'none' }} onChange={handleCSVFile} />
+                </div>
+              </div>
+              <div className="card" style={{ marginTop:16 }}>
+                <div style={{ fontSize:13, fontWeight:600, marginBottom:8 }}>Colunas reconhecidas</div>
+                <table style={{ fontSize:12 }}>
+                  <thead><tr><th>Coluna</th><th>Obrigatório</th><th>Exemplo</th></tr></thead>
+                  <tbody>
+                    {[
+                      ['nome','Sim','Lápis HB'],
+                      ['codigo_barras','Não','7891234567890'],
+                      ['categoria','Não','Material escolar'],
+                      ['cor','Não','Azul'],
+                      ['tamanho','Não','M'],
+                      ['quantidade','Não','100'],
+                      ['custo','Não','1.50'],
+                      ['unidade','Não','un'],
+                    ].map(([col, obrig, ex]) => (
+                      <tr key={col}>
+                        <td style={{ fontFamily:'monospace', color:'#1d4ed8' }}>{col}</td>
+                        <td>{obrig === 'Sim' ? <span style={{ color:'#dc2626', fontWeight:600 }}>Sim</span> : <span style={{ color:'#888' }}>Não</span>}</td>
+                        <td style={{ color:'#888' }}>{ex}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {csvEtapa === 'previa' && (
+            <>
+              <div className="cards-grid" style={{ marginBottom:16 }}>
+                <div className="metric-card"><div className="metric-label">Linhas lidas</div><div className="metric-value blue">{csvLinhas.length}</div></div>
+                <div className="metric-card"><div className="metric-label">Válidas</div><div className="metric-value green">{csvLinhas.filter((_,i)=>!csvErros[i]).length}</div></div>
+                <div className="metric-card"><div className="metric-label">Com erro</div><div className="metric-value red">{csvErros.filter(Boolean).length}</div></div>
+              </div>
+              <div className="card" style={{ marginBottom:16 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th><th>Nome</th><th>Cód. barras</th><th>Categoria</th>
+                      <th>Cor</th><th>Tamanho</th><th>Qtd</th><th>Custo</th><th>Unid.</th><th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {csvLinhas.map((l, i) => (
+                      <tr key={i} style={{ background: csvErros[i] ? '#fef2f2' : undefined }}>
+                        <td style={{ fontSize:11, color:'#888' }}>{l._linha}</td>
+                        <td><strong style={{ fontWeight:500 }}>{l.nome}</strong></td>
+                        <td style={{ fontFamily:'monospace', fontSize:11 }}>{l.codigo_barras || <span style={{ color:'#ccc' }}>—</span>}</td>
+                        <td>
+                          <select value={l.categoria} onChange={e => updateCsvLinha(i,'categoria',e.target.value)}
+                            style={{ padding:'2px 4px', fontSize:12, border:'1px solid #d1d5db', borderRadius:4 }}>
+                            <option>Material escolar</option><option>Limpeza</option>
+                            <option>Escritório</option><option>Esportivo</option><option>Outro</option>
+                          </select>
+                        </td>
+                        <td>{l.cor || <span style={{ color:'#ccc' }}>—</span>}</td>
+                        <td>{l.tamanho || <span style={{ color:'#ccc' }}>—</span>}</td>
+                        <td>
+                          <input type="number" min="0" step="0.1" value={l.quantidade}
+                            onChange={e => updateCsvLinha(i,'quantidade',parseFloat(e.target.value)||0)}
+                            style={{ width:70, padding:'2px 4px', fontSize:12, border:'1px solid #d1d5db', borderRadius:4, textAlign:'center' }} />
+                        </td>
+                        <td>
+                          <input type="number" min="0" step="0.01" value={l.custo}
+                            onChange={e => updateCsvLinha(i,'custo',parseFloat(e.target.value)||0)}
+                            style={{ width:80, padding:'2px 4px', fontSize:12, border:'1px solid #d1d5db', borderRadius:4, textAlign:'center' }} />
+                        </td>
+                        <td>{l.unidade}</td>
+                        <td>
+                          {csvErros[i]
+                            ? <span style={{ color:'#dc2626', fontSize:11 }}>⚠ {csvErros[i]}</span>
+                            : <span style={{ color:'#16a34a', fontSize:11 }}>✓</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
+                <button className="btn" onClick={() => { setCsvEtapa('upload'); setCsvLinhas([]); if(csvRef.current) csvRef.current.value='' }}>← Voltar</button>
+                <button className="btn btn-primary" onClick={confirmarCSV} disabled={csvSaving || !csvLinhas.filter((_,i)=>!csvErros[i]).length}>
+                  {csvSaving ? 'Importando...' : `Importar ${csvLinhas.filter((_,i)=>!csvErros[i]).length} produto(s)`}
+                </button>
+              </div>
+            </>
+          )}
+
+          {csvEtapa === 'sucesso' && csvResultado && (
+            <div style={{ maxWidth:480 }}>
+              <div className="card" style={{ textAlign:'center', padding:'32px 24px' }}>
+                <div style={{ fontSize:40, marginBottom:16 }}>✅</div>
+                <h3 style={{ fontSize:18, fontWeight:600, marginBottom:8 }}>Importação CSV concluída!</h3>
+                <div className="cards-grid" style={{ marginBottom:24 }}>
+                  <div className="metric-card"><div className="metric-label">Criados</div><div className="metric-value green">{csvResultado.criados}</div></div>
+                  <div className="metric-card"><div className="metric-label">Atualizados</div><div className="metric-value yellow">{csvResultado.atualizados}</div></div>
+                  {csvResultado.erros > 0 && <div className="metric-card"><div className="metric-label">Erros</div><div className="metric-value red">{csvResultado.erros}</div></div>}
+                </div>
+                <div style={{ display:'flex', gap:8, justifyContent:'center' }}>
+                  <button className="btn" onClick={() => { setCsvEtapa('upload'); setCsvLinhas([]); setCsvResultado(null) }}>Importar outro CSV</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ══ HISTÓRICO ══ */}}
       {tabAtiva === 'historico' && (
         loadingNotas ? <div className="loading">Carregando...</div> : (
           <div className="card">
