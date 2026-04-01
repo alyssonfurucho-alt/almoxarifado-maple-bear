@@ -189,7 +189,7 @@ tr:hover td { background: #fafaf8; }
   /* mostra só a área de impressão */
   .print-area, .print-area * { visibility: visible; }
   .print-area {
-    position: fixed;
+    position: absolute;
     top: 0; left: 0;
     width: 100%;
     background: white;
