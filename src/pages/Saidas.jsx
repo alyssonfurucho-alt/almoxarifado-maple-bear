@@ -199,13 +199,64 @@ export default function Saidas() {
     setSavingDev(false)
   }
 
+  function exportarExcel() {
+    const lista = saidasSorted.filter(s => {
+      if (filDe    && s.data_saida < filDe)   return false
+      if (filAte   && s.data_saida > filAte)  return false
+      if (filProf  && (s.professores?.nome || s.professor_nome_snapshot) !== filProf) return false
+      if (filTurma && (s.turmas?.codigo || s.turma_codigo_snapshot) !== filTurma) return false
+      return true
+    })
+    const headers = ['Data','Produto','Cor','Tamanho','Qtd','Professor(a)','Registro','Turma','Devolvível','Dev. prevista','Devolvido','Pendente','Custo unit.','Custo total']
+    const rows = lista.map(s => {
+      const prod = s.estoque?.produtos
+      const nome = prod ? `${prod.nome}${prod.cor?` - ${prod.cor}`:''}${prod.tamanho?` ${prod.tamanho}`:''}` : (s.estoque?.nome||'')
+      const custo = s.custo_unitario_saida || s.estoque?.custo_medio || s.estoque?.custo_unitario || 0
+      return [
+        s.data_saida || '',
+        nome,
+        prod?.cor || '',
+        prod?.tamanho || '',
+        s.quantidade,
+        s.professores?.nome || s.professor_nome_snapshot || '',
+        s.professores?.registro || '',
+        s.turmas?.codigo || s.turma_codigo_snapshot || '',
+        s.devolvivel ? 'Sim' : 'Não',
+        s.data_devolucao_prevista || '',
+        s.devolvido || 0,
+        Math.max(0, s.quantidade - (s.devolvido||0)),
+        custo.toFixed(2),
+        (custo * s.quantidade).toFixed(2),
+      ]
+    })
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(';'))
+      .join('
+')
+    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `saidas_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function imprimir() {
+    window.print()
+  }
+
   if (loading) return <div className="loading">Carregando...</div>
 
   return (
     <div>
       <div className="page-header">
         <div className="page-title">Saídas</div>
-        <button className="btn btn-primary" onClick={openModal}>+ Nova saída</button>
+        <div style={{ display:'flex', gap:8 }}>
+          <button className="btn" onClick={imprimir} title="Imprimir">🖨 Imprimir</button>
+          <button className="btn" onClick={exportarExcel} title="Exportar CSV/Excel">📥 Exportar</button>
+          <button className="btn btn-primary" onClick={openModal}>+ Nova saída</button>
+        </div>
       </div>
 
       {(!professores.length || !turmas.length) && (
