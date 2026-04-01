@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useSort } from '../lib/useSort'
+import Th from '../components/Th'
 import { supabase } from '../lib/supabase'
 import { fmtData, fmtR } from '../lib/utils'
 
@@ -13,11 +15,13 @@ export default function Historico() {
   const [filAte, setFilAte] = useState('')
   const [filBusca, setFilBusca] = useState('')
 
+  const { sorted: historicoSorted, sortKey, sortDir, toggleSort } = useSort(historico, 'created_at', 'asc')
+  const { sorted: historico, sortKey, sortDir, toggleSort } = useSort(historicoRaw, 'created_at', 'desc')
   useEffect(() => { load() }, [])
 
   async function load() {
     const { data } = await supabase.from('movimentacoes')
-      .select('*, estoque(nome,unidade,custo_unitario), professores(nome,registro), turmas(codigo)')
+      .select('*, estoque(nome,unidade,custo_unitario,custo_medio,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)')
       .order('created_at', { ascending: false })
       .limit(500)
     setMovs(data || [])
@@ -39,8 +43,10 @@ export default function Historico() {
     return true
   })
 
-  const totalEntradas = lista.filter(m=>m.tipo==='entrada'||m.tipo==='devolucao').reduce((a,m)=>a+m.quantidade,0)
-  const totalSaidas   = lista.filter(m=>m.tipo==='saida').reduce((a,m)=>a+m.quantidade,0)
+  const totalEntradas    = lista.filter(m=>m.tipo==='entrada'||m.tipo==='devolucao').reduce((a,m)=>a+m.quantidade,0)
+  const totalSaidas      = lista.filter(m=>m.tipo==='saida').reduce((a,m)=>a+m.quantidade,0)
+  const valorTotalEntradas = lista.filter(m=>m.tipo==='entrada'||m.tipo==='devolucao').reduce((a,m)=>a+((m.estoque?.custo_medio||m.estoque?.custo_unitario||0)*m.quantidade),0)
+  const valorTotalSaidas   = lista.filter(m=>m.tipo==='saida').reduce((a,m)=>a+((m.estoque?.custo_medio||m.estoque?.custo_unitario||0)*m.quantidade),0)
 
   if (loading) return <div className="loading">Carregando...</div>
 
@@ -53,7 +59,9 @@ export default function Historico() {
       <div className="cards-grid">
         <div className="metric-card"><div className="metric-label">Registros (filtro)</div><div className="metric-value blue">{lista.length}</div></div>
         <div className="metric-card"><div className="metric-label">Total entradas</div><div className="metric-value green">{totalEntradas}</div></div>
+        <div className="metric-card"><div className="metric-label">Valor entradas</div><div className="metric-value green">{fmtR(valorTotalEntradas)}</div></div>
         <div className="metric-card"><div className="metric-label">Total saídas</div><div className="metric-value yellow">{totalSaidas}</div></div>
+        <div className="metric-card"><div className="metric-label">Valor saídas</div><div className="metric-value yellow">{fmtR(valorTotalSaidas)}</div></div>
       </div>
 
       {/* Filtros */}
@@ -92,10 +100,11 @@ export default function Historico() {
         <table>
           <thead>
             <tr>
-              <th>Data / Hora</th>
-              <th>Tipo</th>
-              <th>Item</th>
+              <Th label="Data / Hora" colKey="created_at" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/>
+              <Th label="Tipo" colKey="tipo" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/>
+              <Th label="Item" colKey="item_nome" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/>
               <th>Qtd</th>
+              <th>Valor total</th>
               <th>Professor(a)</th>
               <th>Registro</th>
               <th>Turma</th>
@@ -112,7 +121,9 @@ export default function Historico() {
               const nomeItem = prod ? `${prod.nome}${prod.cor ? ` — ${prod.cor}` : ''}${prod.tamanho ? ` ${prod.tamanho}` : ''}` : (m.estoque?.nome || m.item_nome || '—')
               const dt = new Date(m.created_at)
               const dataHora = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
-              const isEntrada = m.tipo==='entrada'||m.tipo==='devolucao'
+              const isEntrada  = m.tipo==='entrada'||m.tipo==='devolucao'
+              const custoUnit  = m.estoque?.custo_medio || m.estoque?.custo_unitario || 0
+              const valorTotal = custoUnit * (m.quantidade || 0)
               return (
                 <tr key={m.id}>
                   <td style={{fontSize:12,color:'#888',whiteSpace:'nowrap'}}>{dataHora}</td>
@@ -122,6 +133,13 @@ export default function Historico() {
                     <span style={{fontWeight:500, color: isEntrada ? '#16a34a' : '#d97706'}}>
                       {isEntrada ? '+' : '-'}{m.quantidade}
                     </span>
+                  </td>
+                  <td>
+                    {valorTotal > 0
+                      ? <span style={{fontWeight:500, color: isEntrada ? '#16a34a' : '#d97706'}}>
+                          {isEntrada ? '+' : '-'}{fmtR(valorTotal)}
+                        </span>
+                      : <span style={{color:'#ccc'}}>—</span>}
                   </td>
                   <td>{nomeProfessor}</td>
                   <td><span className="badge badge-neutral" style={{fontSize:11}}>{registro}</span></td>
