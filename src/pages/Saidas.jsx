@@ -178,10 +178,15 @@ export default function Saidas() {
       }
       // histórico
       await supabase.from('movimentacoes').insert({
-        item_id: modalDev.item_id,
-        item_nome: nomeProduto(modalDev.estoque),
-        tipo: 'devolucao', quantidade: qtd,
-        observacoes: `Devolução — ${modalDev.professor_nome_snapshot || ''}${devAvaria ? ` | Avaria: ${devAvDesc}` : ''}`,
+        item_id:       modalDev.item_id,
+        item_nome:     nomeProduto(modalDev.estoque),
+        tipo:          'devolucao',
+        quantidade:    qtd,
+        professor_id:  modalDev.professor_id,
+        professor_nome: modalDev.professor_nome_snapshot,
+        turma_id:      modalDev.turma_id,
+        turma_codigo:  modalDev.turma_codigo_snapshot,
+        observacoes:   `Devolução — ${modalDev.professor_nome_snapshot || ''}${devAvaria ? ` | Avaria: ${devAvDesc}` : ''}`,
       })
       setModalDev(null); setDevQtd(''); setDevAvaria(false); setDevAvDesc(''); setDevAvQtd('')
       load()
