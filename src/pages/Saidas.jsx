@@ -270,7 +270,7 @@ export default function Saidas() {
                   <td>{s.devolvivel ? fmtData(s.data_devolucao_prevista) : '-'}</td>
                   <td><span className={`badge ${st.cls}`}>{st.label}</span></td>
                   <td style={{ display:'flex', gap:6 }}>
-                    {s.devolvivel && (s.devolvido || 0) < s.quantidade && (
+                    {(s.devolvido || 0) < s.quantidade && (
                       <button className="btn btn-sm btn-primary"
                         onClick={() => { setModalDev(s); setDevQtd(''); setDevAvaria(false); setDevAvDesc(''); setDevAvQtd('') }}>
                         Devolução
