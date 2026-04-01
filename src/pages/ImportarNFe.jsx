@@ -46,7 +46,9 @@ function parseXmlNFe(xmlStr) {
     itens.push({
       nome:     tag(prod, 'xProd'),
       qtd:      parseFloat(tag(prod, 'qCom').replace(',', '.')) || 0,
-      custo:    parseFloat(tag(prod, 'vUnCom').replace(',', '.')) || 0,
+      custoTotal:    parseFloat(tag(prod, 'vProd').replace(',', '.')) || 0,
+      custoUnitario: parseFloat(tag(prod, 'vUnCom').replace(',', '.')) || 0,
+      custo:         parseFloat(tag(prod, 'vProd').replace(',', '.')) || 0,
       unidade:  normalizeUnidade(tag(prod, 'uCom')),
       ean:      limparEan(tag(prod, 'cEAN')),
       codProd:  tag(prod, 'cProd'),
@@ -287,6 +289,8 @@ export default function ImportarNFe() {
         try {
           const ean = item.eanConfirmado || ''
           const nomeItem = item.nome.trim()
+          // custo unitário = custo total / quantidade
+          const custoUnitCalc = item.qtd > 0 ? item.custo / item.qtd : item.custo
 
           // A: produto
           let produtoId = ean ? produtosDB?.find(p => p.codigo_barras === ean)?.id : null
@@ -314,8 +318,8 @@ export default function ImportarNFe() {
             const novaQtd = (itemEst.quantidade || 0) + item.qtd
             const custoAnt = itemEst.custo_medio || itemEst.custo_unitario || 0
             const qtdAnt = itemEst.quantidade || 0
-            const custoMedio = qtdAnt > 0 ? ((qtdAnt * custoAnt) + (item.qtd * item.custo)) / novaQtd : item.custo
-            const payload = { quantidade: novaQtd, custo_unitario: item.custo, custo_medio: parseFloat(custoMedio.toFixed(2)) }
+            const custoMedio = qtdAnt > 0 ? ((qtdAnt * custoAnt) + (item.qtd * custoUnitCalc)) / novaQtd : custoUnitCalc
+            const payload = { quantidade: novaQtd, custo_unitario: custoUnitCalc, custo_medio: parseFloat(custoMedio.toFixed(2)) }
             if (produtoId && !itemEst.produto_id) payload.produto_id = produtoId
             const { error: eu } = await supabase.from('estoque').update(payload).eq('id', itemEst.id)
             if (eu) throw new Error(eu.message)
@@ -325,7 +329,7 @@ export default function ImportarNFe() {
           } else {
             const { data: ne, error: ei } = await supabase.from('estoque').insert({
               produto_id: produtoId, nome: nomeItem, categoria: item.categoria,
-              custo_unitario: item.custo, custo_medio: item.custo,
+              custo_unitario: custoUnitCalc, custo_medio: custoUnitCalc,
               quantidade: item.qtd, unidade: item.unidade, codigo_barras: ean || null,
             }).select('id').single()
             if (ei) throw new Error(ei.message)
