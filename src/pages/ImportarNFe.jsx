@@ -764,7 +764,7 @@ export default function ImportarNFe() {
                     style={{ fontSize:16, fontWeight:600, textAlign:'center' }} autoFocus />
                 </div>
                 <div className="form-row">
-                  <label>Custo unitário</label>
+                  <label>Custo total</label>
                   <input type="number" step="0.01" value={stepItem.custo}
                     onChange={e => setStepNotas(prev => prev.map((n,ni) => ni!==stepNotaIdx?n:{...n,
                       itensSelecionados:n.itensSelecionados.map((it,ii) => ii!==stepItemIdx?it:{...it,custo:parseFloat(e.target.value)||0})}))}
