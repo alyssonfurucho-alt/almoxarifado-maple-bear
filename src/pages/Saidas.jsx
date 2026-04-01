@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useSort } from '../lib/useSort'
+import Th from '../components/Th'
 import { supabase } from '../lib/supabase'
 import { fmtData, fmtR, hoje, statusDevolucao } from '../lib/utils'
 
@@ -18,6 +20,8 @@ export default function Saidas() {
   const [observacoes, setObservacoes] = useState('')
   const [linhas, setLinhas] = useState([emptyLinha()])
 
+  const [desfazendoId, setDesfazendoId] = useState(null)
+  const { sorted: saidasSorted, sortKey, sortDir, toggleSort } = useSort(saidas, 'created_at', 'asc')
   useEffect(() => { load() }, [])
 
   async function load() {
@@ -110,6 +114,33 @@ export default function Saidas() {
   const estoquePorItem = Object.fromEntries(estoque.map(i => [i.id, i]))
   const itensSelecionados = idxAtual => linhas.map((l, i) => i !== idxAtual ? l.item_id : null).filter(Boolean)
 
+  async function desfazerSaida(saida) {
+    if (!window.confirm(`Desfazer a saída de "${nomeProduto(saida.estoque)}"?\n\nA quantidade será devolvida ao estoque.`)) return
+    setDesfazendoId(saida.id)
+    try {
+      const qtd = saida.quantidade || 0
+      // devolve quantidade ao estoque
+      const { data: item } = await supabase.from('estoque').select('quantidade').eq('id', saida.item_id).single()
+      if (item) {
+        await supabase.from('estoque').update({ quantidade: (item.quantidade || 0) + qtd }).eq('id', saida.item_id)
+      }
+      // registra no histórico
+      await supabase.from('movimentacoes').insert({
+        item_id: saida.item_id,
+        item_nome: nomeProduto(saida.estoque),
+        tipo: 'ajuste',
+        quantidade: qtd,
+        observacoes: `Estorno de saída — ${saida.professor_nome_snapshot || ''} / ${saida.turma_codigo_snapshot || ''}`,
+      })
+      // remove devoluções vinculadas
+      await supabase.from('devolucoes').delete().eq('saida_id', saida.id)
+      // remove a saída
+      await supabase.from('saidas').delete().eq('id', saida.id)
+      load()
+    } catch (e) { alert('Erro ao desfazer: ' + e.message) }
+    setDesfazendoId(null)
+  }
+
   if (loading) return <div className="loading">Carregando...</div>
 
   return (
@@ -128,9 +159,9 @@ export default function Saidas() {
 
       <div className="card">
         <table>
-          <thead><tr><th>Data</th><th>Produto</th><th>Cor</th><th>Tamanho</th><th>Qtd</th><th>Professor(a)</th><th>Turma</th><th>Custo</th><th>Devolvível</th><th>Dev. prevista</th><th>Status</th></tr></thead>
+          <thead><tr><Th label="Data" colKey="created_at" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Produto" colKey="professor_nome_snapshot" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Cor" colKey="cor" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Tamanho" colKey="tamanho" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Qtd" colKey="quantidade" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Professor(a)" colKey="professor_nome_snapshot" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Turma" colKey="turma_codigo_snapshot" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Custo" colKey="custo" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><th>Devolvível</th><Th label="Dev. prevista" colKey="data_devolucao_prevista" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><th>Status</th><th>Ação</th></tr></thead>
           <tbody>
-            {saidas.map(s => {
+            {lista.map(s => {
               const st = statusDevolucao(s)
               const prod = s.estoque?.produtos
               return (
@@ -146,6 +177,14 @@ export default function Saidas() {
                   <td>{s.devolvivel ? <span className="badge badge-info">Sim</span> : <span className="badge badge-neutral">Não</span>}</td>
                   <td>{s.devolvivel ? fmtData(s.data_devolucao_prevista) : '-'}</td>
                   <td><span className={`badge ${st.cls}`}>{st.label}</span></td>
+                  <td>
+                    <button
+                      className="btn btn-sm btn-danger"
+                      disabled={desfazendoId === s.id}
+                      onClick={() => desfazerSaida(s)}>
+                      {desfazendoId === s.id ? 'Desfazendo...' : 'Desfazer'}
+                    </button>
+                  </td>
                 </tr>
               )
             })}
