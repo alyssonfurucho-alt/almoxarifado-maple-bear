@@ -171,8 +171,10 @@ export default function Saidas() {
       })
       if (errDev) throw new Error('Erro ao registrar devolução: ' + errDev.message)
       // atualiza devolvido na saída
-      const novoDevolvido = (modalDev.devolvido || 0) + qtd
-      await supabase.from('saidas').update({ devolvido: novoDevolvido }).eq('id', modalDev.id)
+      const devAtual = parseFloat(modalDev.devolvido) || 0
+      const novoDevolvido = parseFloat((devAtual + qtd).toFixed(3))
+      const { error: errUpd } = await supabase.from('saidas').update({ devolvido: novoDevolvido }).eq('id', modalDev.id)
+      if (errUpd) throw new Error('Erro ao atualizar saída: ' + errUpd.message)
       // devolve ao estoque (descontando avaria)
       const qtdEstoque = qtd - avQtd
       if (qtdEstoque > 0) {
