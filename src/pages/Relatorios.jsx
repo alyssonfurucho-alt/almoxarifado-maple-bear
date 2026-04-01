@@ -21,8 +21,8 @@ export default function Relatorios() {
         .select('*, estoque(nome,custo_unitario,custo_medio,ultimo_custo,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)')
         .order('data_saida', { ascending: false }),
       supabase.from('devolucoes')
-        .select('*, saidas(data_saida, professor_nome_snapshot, turma_codigo_snapshot, professores(nome,registro), turmas(codigo), estoque(nome,custo_unitario,custo_medio,produtos(nome,cor,tamanho)))')
-        .order('created_at', { ascending: false }),
+        .select('*, saidas(data_saida, professor_nome_snapshot, turma_codigo_snapshot, item_id, professores(nome,registro), turmas(codigo), estoque(nome,custo_unitario,custo_medio,produtos(nome,cor,tamanho)))')
+        .order('data_devolucao', { ascending: false }),
       supabase.from('professores').select('id,nome').eq('ativo',true).order('nome'),
       supabase.from('turmas').select('id,codigo').eq('ativo',true).order('codigo'),
     ])
@@ -43,7 +43,7 @@ export default function Relatorios() {
   const regProfD    = d => d.saidas?.professores?.registro || '—'
   const codTurmaD   = d => d.saidas?.turmas?.codigo || d.saidas?.turma_codigo_snapshot || '—'
   const custoDevol  = d => d.saidas?.estoque?.custo_medio || d.saidas?.estoque?.custo_unitario || 0
-  const dataDevol   = d => d.created_at?.split('T')[0] || ''
+  const dataDevol   = d => d.data_devolucao || d.created_at?.split('T')[0] || ''
 
   // filtros saídas
   const saidasFiltradas = saidas.filter(s => {
@@ -56,7 +56,7 @@ export default function Relatorios() {
 
   // filtros devoluções
   const devFiltradas = devolucoes.filter(d => {
-    const data = dataDevol(d)
+    const data = d.data_devolucao || d.created_at?.split('T')[0] || ''
     if (filDe    && data < filDe)            return false
     if (filAte   && data > filAte)           return false
     if (filProf  && nomeProfD(d) !== filProf) return false
