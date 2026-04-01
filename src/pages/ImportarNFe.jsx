@@ -320,6 +320,11 @@ export default function ImportarNFe() {
             if (produtoId && !itemEst.produto_id) payload.produto_id = produtoId
             const { error: eu } = await supabase.from('estoque').update(payload).eq('id', itemEst.id)
             if (eu) throw new Error(eu.message)
+            await supabase.from('movimentacoes').insert({
+              item_id: itemEst.id, item_nome: nomeItem,
+              tipo: 'entrada', quantidade: item.qtd,
+              observacoes: `NF-e ${nota.info.numero} — ${nota.info.emitente}`,
+            })
             log.push({ id: itemEst.id, nome: nomeItem, qtd: item.qtd, tipo: 'entrada' })
             atualizados++
             itemEst.quantidade = novaQtd
@@ -330,6 +335,11 @@ export default function ImportarNFe() {
               quantidade: item.qtd, unidade: item.unidade, codigo_barras: ean || null,
             }).select('id').single()
             if (ei) throw new Error(ei.message)
+            await supabase.from('movimentacoes').insert({
+              item_id: ne.id, item_nome: nomeItem,
+              tipo: 'entrada', quantidade: item.qtd,
+              observacoes: `NF-e ${nota.info.numero} — ${nota.info.emitente}`,
+            })
             log.push({ id: ne.id, nome: nomeItem, qtd: item.qtd, tipo: 'cadastro' })
             estoqueDB?.push({ id: ne.id, nome: nomeItem, quantidade: item.qtd, produto_id: produtoId, codigo_barras: ean })
             cadastrados++
@@ -527,6 +537,11 @@ export default function ImportarNFe() {
             quantidade: novaQtd, custo_unitario: linha.custo,
             custo_medio: parseFloat(custoMedio.toFixed(2)),
           }).eq('id', itemEst.id)
+          await supabase.from('movimentacoes').insert({
+            item_id: itemEst.id, item_nome: linha.nome,
+            tipo: 'entrada', quantidade: linha.quantidade,
+            observacoes: 'Importação CSV',
+          })
           csvLog.push({ id: itemEst.id, nome: linha.nome, qtd: linha.quantidade, tipo: 'entrada' })
           atualizados++
         } else {
@@ -536,7 +551,14 @@ export default function ImportarNFe() {
             custo_medio: linha.custo, quantidade: linha.quantidade,
             unidade: linha.unidade || 'un', codigo_barras: ean || null,
           }).select('id').single()
-          if (ne) csvLog.push({ id: ne.id, nome: linha.nome, qtd: linha.quantidade, tipo: 'cadastro' })
+          if (ne) {
+            await supabase.from('movimentacoes').insert({
+              item_id: ne.id, item_nome: linha.nome,
+              tipo: 'entrada', quantidade: linha.quantidade,
+              observacoes: 'Importação CSV',
+            })
+            csvLog.push({ id: ne.id, nome: linha.nome, qtd: linha.quantidade, tipo: 'cadastro' })
+          }
           criados++
         }
       } catch(e) { console.error(e); erros++ }
