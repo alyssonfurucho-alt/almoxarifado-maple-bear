@@ -20,7 +20,17 @@ export default function Saidas() {
   const [observacoes, setObservacoes] = useState('')
   const [linhas, setLinhas] = useState([emptyLinha()])
 
-  const [desfazendoId, setDesfazendoId] = useState(null)
+  const [desfazendoId, setDesfazendoId]   = useState(null)
+  const [filDe, setFilDe]                 = useState('')
+  const [filAte, setFilAte]               = useState('')
+  const [filProf, setFilProf]             = useState('')
+  const [filTurma, setFilTurma]           = useState('')
+  const [modalDev, setModalDev]           = useState(null)  // saida para devolver
+  const [devQtd, setDevQtd]               = useState('')
+  const [devAvaria, setDevAvaria]         = useState(false)
+  const [devAvDesc, setDevAvDesc]         = useState('')
+  const [devAvQtd, setDevAvQtd]           = useState('')
+  const [savingDev, setSavingDev]         = useState(false)
   const { sorted: saidasSorted, sortKey, sortDir, toggleSort } = useSort(saidas, 'created_at', 'asc')
   useEffect(() => { load() }, [])
 
@@ -141,6 +151,44 @@ export default function Saidas() {
     setDesfazendoId(null)
   }
 
+  async function registrarDevolucao() {
+    const qtd = parseFloat(devQtd)
+    if (!qtd || qtd <= 0) return alert('Informe a quantidade devolvida')
+    const pend = modalDev.quantidade - (modalDev.devolvido || 0)
+    if (qtd > pend) return alert(`Quantidade máxima a devolver: ${pend}`)
+    setSavingDev(true)
+    try {
+      const avQtd = devAvaria ? (parseFloat(devAvQtd) || 0) : 0
+      // registra devolução
+      await supabase.from('devolucoes').insert({
+        saida_id: modalDev.id,
+        quantidade: qtd,
+        avaria: devAvaria,
+        avaria_descricao: devAvaria ? devAvDesc : null,
+        avaria_quantidade: avQtd,
+      })
+      // atualiza devolvido na saída
+      const novoDevolvido = (modalDev.devolvido || 0) + qtd
+      await supabase.from('saidas').update({ devolvido: novoDevolvido }).eq('id', modalDev.id)
+      // devolve ao estoque (descontando avaria)
+      const qtdEstoque = qtd - avQtd
+      if (qtdEstoque > 0) {
+        const { data: item } = await supabase.from('estoque').select('quantidade').eq('id', modalDev.item_id).single()
+        if (item) await supabase.from('estoque').update({ quantidade: (item.quantidade || 0) + qtdEstoque }).eq('id', modalDev.item_id)
+      }
+      // histórico
+      await supabase.from('movimentacoes').insert({
+        item_id: modalDev.item_id,
+        item_nome: nomeProduto(modalDev.estoque),
+        tipo: 'devolucao', quantidade: qtd,
+        observacoes: `Devolução — ${modalDev.professor_nome_snapshot || ''}${devAvaria ? ` | Avaria: ${devAvDesc}` : ''}`,
+      })
+      setModalDev(null); setDevQtd(''); setDevAvaria(false); setDevAvDesc(''); setDevAvQtd('')
+      load()
+    } catch (e) { alert('Erro: ' + e.message) }
+    setSavingDev(false)
+  }
+
   if (loading) return <div className="loading">Carregando...</div>
 
   return (
@@ -157,11 +205,55 @@ export default function Saidas() {
         </div>
       )}
 
+      {/* Filtros */}
+      <div className="card" style={{ marginBottom:16, padding:'14px 16px' }}>
+        <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'flex-end' }}>
+          <div>
+            <label style={{ fontSize:12, color:'#666', display:'block', marginBottom:4 }}>De</label>
+            <input type="date" value={filDe} onChange={e => setFilDe(e.target.value)}
+              style={{ padding:'7px 10px', border:'1px solid #d1d5db', borderRadius:8, fontSize:13 }} />
+          </div>
+          <div>
+            <label style={{ fontSize:12, color:'#666', display:'block', marginBottom:4 }}>Até</label>
+            <input type="date" value={filAte} onChange={e => setFilAte(e.target.value)}
+              style={{ padding:'7px 10px', border:'1px solid #d1d5db', borderRadius:8, fontSize:13 }} />
+          </div>
+          <div>
+            <label style={{ fontSize:12, color:'#666', display:'block', marginBottom:4 }}>Professor(a)</label>
+            <select value={filProf} onChange={e => setFilProf(e.target.value)}
+              style={{ padding:'7px 10px', border:'1px solid #d1d5db', borderRadius:8, fontSize:13, minWidth:180 }}>
+              <option value="">Todos</option>
+              {professores.map(p => <option key={p.id} value={p.nome}>{p.nome}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize:12, color:'#666', display:'block', marginBottom:4 }}>Turma</label>
+            <select value={filTurma} onChange={e => setFilTurma(e.target.value)}
+              style={{ padding:'7px 10px', border:'1px solid #d1d5db', borderRadius:8, fontSize:13, minWidth:120 }}>
+              <option value="">Todas</option>
+              {turmas.map(t => <option key={t.id} value={t.codigo}>{t.codigo}</option>)}
+            </select>
+          </div>
+          {(filDe||filAte||filProf||filTurma) && (
+            <button className="btn btn-sm" style={{ alignSelf:'flex-end' }}
+              onClick={() => { setFilDe(''); setFilAte(''); setFilProf(''); setFilTurma('') }}>
+              Limpar
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="card">
         <table>
           <thead><tr><Th label="Data" colKey="created_at" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Produto" colKey="professor_nome_snapshot" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Cor" colKey="cor" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Tamanho" colKey="tamanho" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Qtd" colKey="quantidade" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Professor(a)" colKey="professor_nome_snapshot" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Turma" colKey="turma_codigo_snapshot" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Custo" colKey="custo" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><th>Devolvível</th><Th label="Dev. prevista" colKey="data_devolucao_prevista" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><th>Status</th><th>Ação</th></tr></thead>
           <tbody>
-            {saidasSorted.map(s => {
+            {saidasSorted.filter(s => {
+                if (filDe    && s.data_saida < filDe)   return false
+                if (filAte   && s.data_saida > filAte)  return false
+                if (filProf  && (s.professores?.nome || s.professor_nome_snapshot) !== filProf) return false
+                if (filTurma && (s.turmas?.codigo || s.turma_codigo_snapshot) !== filTurma) return false
+                return true
+              }).map(s => {
               const st = statusDevolucao(s)
               const prod = s.estoque?.produtos
               return (
@@ -177,7 +269,13 @@ export default function Saidas() {
                   <td>{s.devolvivel ? <span className="badge badge-info">Sim</span> : <span className="badge badge-neutral">Não</span>}</td>
                   <td>{s.devolvivel ? fmtData(s.data_devolucao_prevista) : '-'}</td>
                   <td><span className={`badge ${st.cls}`}>{st.label}</span></td>
-                  <td>
+                  <td style={{ display:'flex', gap:6 }}>
+                    {s.devolvivel && (s.devolvido || 0) < s.quantidade && (
+                      <button className="btn btn-sm btn-primary"
+                        onClick={() => { setModalDev(s); setDevQtd(''); setDevAvaria(false); setDevAvDesc(''); setDevAvQtd('') }}>
+                        Devolução
+                      </button>
+                    )}
                     <button
                       className="btn btn-sm btn-danger"
                       disabled={desfazendoId === s.id}
@@ -287,6 +385,56 @@ export default function Saidas() {
           </div>
         </div>
       </div>
+      {/* Modal Devolução */}
+      <div className={`modal-overlay${modalDev ? ' open' : ''}`}>
+        <div className="modal" style={{ width:440 }}>
+          <h3>Registrar devolução</h3>
+          {modalDev && (
+            <>
+              <div style={{ background:'#f5f5f3', borderRadius:8, padding:'10px 14px', marginBottom:16, fontSize:13 }}>
+                <div><strong>{nomeProduto(modalDev.estoque)}</strong></div>
+                <div style={{ color:'#888', marginTop:4 }}>
+                  {modalDev.professor_nome_snapshot} · {modalDev.turma_codigo_snapshot}
+                  &nbsp;· Pendente: <strong>{modalDev.quantidade - (modalDev.devolvido||0)}</strong>
+                </div>
+              </div>
+              <div className="form-row">
+                <label>Quantidade devolvida</label>
+                <input type="number" min="0.001" step="0.001"
+                  max={modalDev.quantidade - (modalDev.devolvido||0)}
+                  value={devQtd} onChange={e => setDevQtd(e.target.value)}
+                  placeholder="0" autoFocus />
+              </div>
+              <div className="form-row" style={{ marginTop:8 }}>
+                <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', fontSize:13 }}>
+                  <input type="checkbox" checked={devAvaria} onChange={e => setDevAvaria(e.target.checked)}
+                    style={{ accentColor:'#dc2626' }} />
+                  <span>Possui <strong style={{ color:'#dc2626' }}>avaria</strong></span>
+                </label>
+              </div>
+              {devAvaria && (
+                <div className="form-grid">
+                  <div className="form-row">
+                    <label>Descrição da avaria</label>
+                    <input value={devAvDesc} onChange={e => setDevAvDesc(e.target.value)} placeholder="Descreva..." />
+                  </div>
+                  <div className="form-row">
+                    <label>Qtd avariada</label>
+                    <input type="number" min="0" step="0.001" value={devAvQtd} onChange={e => setDevAvQtd(e.target.value)} placeholder="0" />
+                  </div>
+                </div>
+              )}
+              <div className="modal-footer">
+                <button className="btn" onClick={() => setModalDev(null)}>Cancelar</button>
+                <button className="btn btn-primary" onClick={registrarDevolucao} disabled={savingDev}>
+                  {savingDev ? 'Salvando...' : 'Confirmar devolução'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
     </div>
   )
 }
