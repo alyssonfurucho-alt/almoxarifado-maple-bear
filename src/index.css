@@ -181,3 +181,13 @@ tr:hover td { background: #fafaf8; }
   padding: 4px 0;
 }
 .checkbox-label input[type="checkbox"] { width: auto; accent-color: #1d4ed8; }
+
+/* ── Impressão ── */
+@media print {
+  .sidebar, .page-header button, .btn, .tabs, .search-bar,
+  .modal-overlay, input[type="date"], select { display: none !important; }
+  body { background: white !important; }
+  .card { box-shadow: none !important; border: 1px solid #ccc !important; }
+  table { font-size: 11px !important; }
+  th, td { padding: 4px 6px !important; }
+}
