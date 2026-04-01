@@ -46,9 +46,7 @@ function parseXmlNFe(xmlStr) {
     itens.push({
       nome:     tag(prod, 'xProd'),
       qtd:      parseFloat(tag(prod, 'qCom').replace(',', '.')) || 0,
-      custoTotal:    parseFloat(tag(prod, 'vProd').replace(',', '.')) || 0,
-      custoUnitario: parseFloat(tag(prod, 'vUnCom').replace(',', '.')) || 0,
-      custo:         parseFloat(tag(prod, 'vProd').replace(',', '.')) || 0,
+      custo:    parseFloat(tag(prod, 'vProd').replace(',', '.')) || 0,
       unidade:  normalizeUnidade(tag(prod, 'uCom')),
       ean:      limparEan(tag(prod, 'cEAN')),
       codProd:  tag(prod, 'cProd'),
@@ -289,7 +287,6 @@ export default function ImportarNFe() {
         try {
           const ean = item.eanConfirmado || ''
           const nomeItem = item.nome.trim()
-          // custo unitário = custo total / quantidade
           const custoUnitCalc = item.qtd > 0 ? item.custo / item.qtd : item.custo
 
           // A: produto
@@ -669,7 +666,7 @@ export default function ImportarNFe() {
                               onChange={e => toggleTodosNota(notaAtiva, e.target.checked)}
                               style={{ accentColor:'#1d4ed8' }} />
                           </th>
-                          <th>Produto (NF-e)</th><th>EAN</th><th>Qtd</th><th>Custo unit.</th><th>Unid.</th>
+                          <th>Produto (NF-e)</th><th>EAN</th><th>Qtd</th><th>Custo total</th><th>Unid.</th>
                         </tr>
                       </thead>
                       <tbody>
