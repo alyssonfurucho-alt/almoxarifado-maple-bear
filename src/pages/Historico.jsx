@@ -35,8 +35,8 @@ export default function Historico() {
     if (filBusca) {
       const q = filBusca.toLowerCase()
       const nome = (m.estoque?.nome || m.item_nome || '').toLowerCase()
-      const prof = (m.professores?.nome || m.professor_nome || '').toLowerCase()
-      const turma = (m.turmas?.codigo || m.turma_codigo || '').toLowerCase()
+      const prof = (m.professor_nome || m.professores?.nome || '').toLowerCase()
+      const turma = (m.turma_codigo || m.turmas?.codigo || '').toLowerCase()
       if (!nome.includes(q) && !prof.includes(q) && !turma.includes(q)) return false
     }
     return true
@@ -112,9 +112,9 @@ export default function Historico() {
           </thead>
           <tbody>
             {lista.map(m => {
-              const nomeProfessor = m.professores?.nome || m.professor_nome || '—'
+              const nomeProfessor = m.professor_nome || m.professores?.nome || '—'
               const registro      = m.professores?.registro || '—'
-              const codigoTurma   = m.turmas?.codigo || m.turma_codigo || '—'
+              const codigoTurma   = m.turma_codigo || m.turmas?.codigo || '—'
               
               const prod = m.estoque?.produtos
               const nomeItem = prod ? `${prod.nome}${prod.cor ? ` — ${prod.cor}` : ''}${prod.tamanho ? ` ${prod.tamanho}` : ''}` : (m.estoque?.nome || m.item_nome || '—')
