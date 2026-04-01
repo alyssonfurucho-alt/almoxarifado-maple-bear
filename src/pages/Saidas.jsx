@@ -160,13 +160,16 @@ export default function Saidas() {
     try {
       const avQtd = devAvaria ? (parseFloat(devAvQtd) || 0) : 0
       // registra devolução
-      await supabase.from('devolucoes').insert({
-        saida_id: modalDev.id,
-        quantidade: qtd,
-        avaria: devAvaria,
-        avaria_descricao: devAvaria ? devAvDesc : null,
+      const { error: errDev } = await supabase.from('devolucoes').insert({
+        saida_id:          modalDev.id,
+        quantidade:        qtd,
+        data_devolucao:    new Date().toISOString().split('T')[0],
+        avaria:            devAvaria,
+        avaria_descricao:  devAvaria ? devAvDesc : null,
         avaria_quantidade: avQtd,
+        observacoes:       `Devolução — ${modalDev.professor_nome_snapshot || ''}`,
       })
+      if (errDev) throw new Error('Erro ao registrar devolução: ' + errDev.message)
       // atualiza devolvido na saída
       const novoDevolvido = (modalDev.devolvido || 0) + qtd
       await supabase.from('saidas').update({ devolvido: novoDevolvido }).eq('id', modalDev.id)
