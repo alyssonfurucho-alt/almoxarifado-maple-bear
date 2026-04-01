@@ -15,7 +15,6 @@ export default function Historico() {
   const [filAte, setFilAte] = useState('')
   const [filBusca, setFilBusca] = useState('')
 
-  const { sorted: historicoSorted, sortKey, sortDir, toggleSort } = useSort(historico, 'created_at', 'asc')
   const { sorted: historico, sortKey, sortDir, toggleSort } = useSort(historicoRaw, 'created_at', 'desc')
   useEffect(() => { load() }, [])
 
