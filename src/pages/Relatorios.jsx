@@ -57,10 +57,16 @@ export default function Relatorios() {
   // filtros devoluções
   const devFiltradas = devolucoes.filter(d => {
     const data = d.data_devolucao || d.created_at?.split('T')[0] || ''
-    if (filDe    && data < filDe)            return false
-    if (filAte   && data > filAte)           return false
-    if (filProf  && nomeProfD(d) !== filProf) return false
-    if (filTurma && codTurmaD(d) !== filTurma) return false
+    if (filDe && data && data < filDe) return false
+    if (filAte && data && data > filAte) return false
+    if (filProf) {
+      const profDev = d.saidas?.professores?.nome || d.saidas?.professor_nome_snapshot || ''
+      if (!profDev.toLowerCase().includes(filProf.toLowerCase()) && profDev !== filProf) return false
+    }
+    if (filTurma) {
+      const turmaDev = d.saidas?.turmas?.codigo || d.saidas?.turma_codigo_snapshot || ''
+      if (turmaDev !== filTurma) return false
+    }
     return true
   })
 
