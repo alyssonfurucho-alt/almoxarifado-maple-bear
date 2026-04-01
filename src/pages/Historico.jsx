@@ -8,7 +8,7 @@ const TIPO_LABEL = { entrada:'Entrada', saida:'Saída', devolucao:'Devolução',
 const TIPO_CLS   = { entrada:'badge-success', saida:'badge-warning', devolucao:'badge-info', ajuste:'badge-neutral' }
 
 export default function Historico() {
-  const [movs, setMovs] = useState([])
+  const [historicoRaw, setHistoricoRaw] = useState([])
   const [loading, setLoading] = useState(true)
   const [filTipo, setFilTipo] = useState('')
   const [filDe, setFilDe] = useState('')
@@ -23,11 +23,11 @@ export default function Historico() {
       .select('*, estoque(nome,unidade,custo_unitario,custo_medio,produtos(nome,cor,tamanho)), professores(nome,registro), turmas(codigo)')
       .order('created_at', { ascending: false })
       .limit(500)
-    setMovs(data || [])
+    setHistoricoRaw(data || [])
     setLoading(false)
   }
 
-  const lista = movs.filter(m => {
+  const lista = historico.filter(m => {
     const data = m.created_at?.split('T')[0] || ''
     if (filTipo && m.tipo !== filTipo) return false
     if (filDe && data < filDe) return false
