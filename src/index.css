@@ -201,4 +201,8 @@ tr:hover td { background: #fafaf8; }
   .print-area .print-header { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
   .print-area .print-sub { font-size: 11px; color: #666; margin-bottom: 12px; }
   .btn-print-hide { display: none !important; }
+  /* esconde botões dentro da tabela */
+  .print-area td .btn { display: none !important; }
+  /* esconde coluna Ação */
+  .print-area th:last-child, .print-area td:last-child { display: none !important; }
 }
