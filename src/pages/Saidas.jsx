@@ -309,7 +309,7 @@ export default function Saidas() {
           {filProf ? ` · Professor(a): ${filProf}` : ''}
           {filTurma ? ` · Turma: ${filTurma}` : ''}
         </div>
-        <div className="card btn-print-hide" style={{marginBottom:0}}>
+        <div className="card" style={{marginBottom:0}}>
         <table>
           <thead><tr><Th label="Data" colKey="created_at" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Produto" colKey="professor_nome_snapshot" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Cor" colKey="cor" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Tamanho" colKey="tamanho" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Qtd" colKey="quantidade" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Professor(a)" colKey="professor_nome_snapshot" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Turma" colKey="turma_codigo_snapshot" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><Th label="Custo" colKey="custo" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><th>Devolvível</th><Th label="Dev. prevista" colKey="data_devolucao_prevista" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}/><th>Status</th><th>Ação</th></tr></thead>
           <tbody>
